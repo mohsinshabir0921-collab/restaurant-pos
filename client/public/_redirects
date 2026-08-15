@@ -1,3 +1,6 @@
-# Serve the public website for every non-asset path so the site root and any
-# direct path load /website.html (HashRouter handles #/... client-side routing).
-/*  /website.html  200
+# POS SPA fallback: rewrite every non-asset path to /index.html so POS
+# (BrowserRouter) routes like /login and /dashboard keep working on refresh.
+# Static files take precedence over this rewrite, so /website.html and all
+# /assets/* still serve directly; the public website's HashRouter routes
+# (#/...) never hit the server and need no rewrite.
+/*  /index.html  200
