@@ -18,9 +18,22 @@ const toDateInput = (date) => {
 
 const addMinutes = (date, minutes) => new Date(date.getTime() + minutes * 60000);
 
+// Progressive delivery rate schedule published in the UI (first 5 km ₹10/km,
+// then ₹15/km). Mirrors the server's calculateDeliveryFee. Used only to render
+// a display fallback when the authoritative estimate cannot be fetched — the
+// server remains the single source of truth for the final amount.
+const DELIVERY_RATE_FIRST_5_KM = 10;
+const DELIVERY_RATE_AFTER_5_KM = 15;
+
+const fallbackDeliveryFee = (distanceKm) => {
+  const km = Number(distanceKm);
+  if (!Number.isFinite(km) || km <= 0) return 0;
+  return Math.round(Math.min(km, 5) * DELIVERY_RATE_FIRST_5_KM + Math.max(0, km - 5) * DELIVERY_RATE_AFTER_5_KM);
+};
+
 export default function CheckoutPage() {
   const navigate = useNavigate();
-  const { cartItems, subtotal, isEmpty } = useCart();
+  const { cartItems, subtotal, isEmpty, unitPrice } = useCart();
   const { orderType, setOrderType, setLastOrder } = useOrder();
   const { settings, getSetting } = useWebsite();
   const { notify } = useToast();
@@ -107,7 +120,7 @@ export default function CheckoutPage() {
     [effectiveOrderType, deliveryAddress, deliveryState, deliveryDistanceKm]
   );
 
-  const { estimate, loading: estimateLoading } = useEstimate({
+  const { estimate, loading: estimateLoading, error: estimateError } = useEstimate({
     items: cartItems,
     orderType: effectiveOrderType,
     couponCode: appliedCoupon?.code,
@@ -115,7 +128,32 @@ export default function CheckoutPage() {
     enabled: estimateEnabled,
   });
 
-  const couponOrderAmount = estimate?.subtotal || subtotal;
+  // Authoritative server breakdown when available. If the estimate cannot be
+  // fetched, fall back to values already known on the client (cart prices and
+  // the published delivery rate schedule) so the summary never collapses to a
+  // misleading ₹0 or drops rows.
+  const displayEstimate = useMemo(() => {
+    if (estimate) return estimate;
+    const distanceKm = Number(deliveryDistanceKm);
+    const deliveryFee = effectiveOrderType === "delivery" ? fallbackDeliveryFee(distanceKm) : 0;
+    const couponDiscount = Number(appliedCoupon?.discount) || 0;
+    return {
+      subtotal,
+      couponDiscount,
+      coupon: appliedCoupon ? { code: appliedCoupon.code } : null,
+      tax: 0,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      serviceCharge: 0,
+      deliveryFee,
+      deliveryDistanceKm: deliveryFee > 0 ? distanceKm : 0,
+      total: subtotal - couponDiscount + deliveryFee,
+      estimateOnly: true,
+    };
+  }, [estimate, subtotal, effectiveOrderType, deliveryDistanceKm, appliedCoupon]);
+
+  const couponOrderAmount = displayEstimate.subtotal;
 
   const handleApplyCoupon = useCallback(async () => {
     clearCouponError();
@@ -455,7 +493,7 @@ export default function CheckoutPage() {
                   </div>
                 </div>
                 <p className="field-hint">
-                  Delivery fee: {formatPrice(10)}/km for the first 5 km, then {formatPrice(15)}/km beyond.
+                  Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond.
                 </p>
               </section>
             )}
@@ -513,10 +551,11 @@ export default function CheckoutPage() {
               {cartItems.map((item) => (
                 <li key={item.id} className="summary-item">
                   <span className="summary-item-qty">{item.qty}×</span>
-                  <span className="summary-item-name">{item.name}</span>
-                  <span className="summary-item-price">
-                    {formatPrice((item.price + (item.modifiers || []).reduce((s, m) => s + (Number(m.price) || 0), 0)) * item.qty)}
+                  <span className="summary-item-body">
+                    <span className="summary-item-name">{item.name}</span>
+                    <span className="summary-item-unit">{formatPrice(unitPrice(item))} each</span>
                   </span>
+                  <span className="summary-item-price">{formatPrice(unitPrice(item) * item.qty)}</span>
                 </li>
               ))}
             </ul>
@@ -557,47 +596,53 @@ export default function CheckoutPage() {
               )}
             </div>
 
+            {estimateError && displayEstimate.estimateOnly && (
+              <p className="estimate-warning">
+                We couldn&apos;t verify the total right now. Showing an estimate — the final amount is confirmed when you place your order.
+              </p>
+            )}
+
             <dl className="summary-totals">
               <div className="summary-row">
                 <dt>Subtotal</dt>
-                <dd>{formatPrice(estimate?.subtotal ?? subtotal)}</dd>
+                <dd>{formatPrice(displayEstimate.subtotal)}</dd>
               </div>
-              {estimate?.couponDiscount > 0 && (
+              {displayEstimate.couponDiscount > 0 && (
                 <div className="summary-row discount">
-                  <dt>Coupon ({estimate.coupon?.code})</dt>
-                  <dd>−{formatPrice(estimate.couponDiscount)}</dd>
+                  <dt>Coupon ({displayEstimate.coupon?.code})</dt>
+                  <dd>−{formatPrice(displayEstimate.couponDiscount)}</dd>
                 </div>
               )}
-              {estimate?.serviceCharge > 0 && (
+              {displayEstimate.serviceCharge > 0 && (
                 <div className="summary-row">
                   <dt>Service Charge</dt>
-                  <dd>{formatPrice(estimate.serviceCharge)}</dd>
+                  <dd>{formatPrice(displayEstimate.serviceCharge)}</dd>
                 </div>
               )}
-              {estimate?.deliveryFee > 0 && (
+              {displayEstimate.deliveryFee > 0 && (
                 <div className="summary-row">
                   <dt>
                     Delivery Fee
-                    {estimate.deliveryDistanceKm ? ` (${estimate.deliveryDistanceKm} km)` : ""}
+                    {displayEstimate.deliveryDistanceKm ? ` (${displayEstimate.deliveryDistanceKm} km)` : ""}
                   </dt>
-                  <dd>{formatPrice(estimate.deliveryFee)}</dd>
+                  <dd>{formatPrice(displayEstimate.deliveryFee)}</dd>
                 </div>
               )}
-              {estimate?.tax > 0 && (
+              {displayEstimate.tax > 0 && (
                 <div className="summary-row">
-                  <dt>Taxes (CGST {formatPrice(estimate.cgst || 0)} + SGST {formatPrice(estimate.sgst || 0)})
-                    {estimate?.igst > 0 ? ` + IGST ${formatPrice(estimate.igst)}` : ""}
+                  <dt>Taxes (CGST {formatPrice(displayEstimate.cgst || 0)} + SGST {formatPrice(displayEstimate.sgst || 0)})
+                    {displayEstimate.igst > 0 ? ` + IGST ${formatPrice(displayEstimate.igst)}` : ""}
                   </dt>
-                  <dd>{formatPrice(estimate.tax)}</dd>
+                  <dd>{formatPrice(displayEstimate.tax)}</dd>
                 </div>
               )}
               <div className="summary-row grand-total">
-                <dt>Total</dt>
+                <dt>{displayEstimate.estimateOnly ? "Estimated Total" : "Total"}</dt>
                 <dd>
                   {estimateLoading && !estimate ? (
                     <span className="total-loading">Calculating…</span>
                   ) : (
-                    formatPrice(estimate?.total ?? 0)
+                    formatPrice(displayEstimate.total)
                   )}
                 </dd>
               </div>
