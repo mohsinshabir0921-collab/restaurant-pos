@@ -23,19 +23,32 @@ export default function MenuPage() {
     isAvailable: true,
     taxRate: 0,
     image: "",
-    displayOrder: 0,
+    displayOrder: "",
     tags: "",
     modifiers: [],
   });
 
   const fetchData = async () => {
     try {
-      const [menuRes, catRes] = await Promise.all([
-        menuAPI.getAll({ limit: 200 }),
-        categoryAPI.getAll({ activeOnly: "false" }),
-      ]);
-      if (menuRes.data.success) setMenuItems(menuRes.data.menuItems);
+      const catRes = await categoryAPI.getAll({ activeOnly: "false" });
       if (catRes.data.success) setCategories(catRes.data.categories);
+
+      // Management must see the whole catalog (available + unavailable) so
+      // items can be edited, re-ordered and re-enabled. The API caps each
+      // page at MAX_LIMIT=100, so iterate pages until every item is loaded.
+      const allItems = [];
+      let page = 1;
+      let total = Infinity;
+      while (allItems.length < total) {
+        const res = await menuAPI.getAll({ limit: 100, page, availableOnly: "false" });
+        if (!res.data.success) break;
+        const items = res.data.menuItems || [];
+        total = res.data.pagination?.total ?? allItems.length + items.length;
+        allItems.push(...items);
+        if (items.length === 0 || allItems.length >= total) break;
+        page += 1;
+      }
+      setMenuItems(allItems);
     } catch (err) {
       setError("Failed to load data");
     } finally {
@@ -67,10 +80,17 @@ export default function MenuPage() {
       price: Number(formData.price),
       prepTime: Number(formData.prepTime),
       taxRate: Number(formData.taxRate),
-      displayOrder: Number(formData.displayOrder),
       tags: formData.tags.split(",").map(t => t.trim()).filter(Boolean),
       modifiers: formData.modifiers,
     };
+
+    // Leave displayOrder unset for new items so the server assigns the next
+    // slot instead of every new item colliding at order 0.
+    if (formData.displayOrder === "") {
+      delete data.displayOrder;
+    } else {
+      data.displayOrder = Number(formData.displayOrder);
+    }
 
     try {
       if (editingItem) {
@@ -101,7 +121,7 @@ export default function MenuPage() {
         isAvailable: item.isAvailable !== false,
         taxRate: item.taxRate || 0,
         image: item.image || "",
-        displayOrder: item.displayOrder || 0,
+        displayOrder: item.displayOrder || "",
         tags: (item.tags || []).join(", "),
         modifiers: item.modifiers || [],
       });
@@ -118,7 +138,7 @@ export default function MenuPage() {
         isAvailable: true,
         taxRate: 0,
         image: "",
-        displayOrder: 0,
+        displayOrder: "",
         tags: "",
         modifiers: [],
       });
@@ -156,46 +176,54 @@ export default function MenuPage() {
 
       {error && <div className="toast error">{error}</div>}
 
-      <div className="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Image</th>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Price</th>
-              <th>Veg</th>
-              <th>Spice</th>
-              <th>Prep Time</th>
-              <th>Available</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {menuItems.map(item => (
-              <tr key={item._id}>
-                <td>{item.image && <img src={item.image} alt={item.name} className="thumb" />}</td>
-                <td>{item.name}</td>
-                <td>{item.category?.name || item.category}</td>
-                <td>₹{item.price}</td>
-                <td>{item.isVeg ? "🟢" : "🔴"}</td>
-                <td>{item.spiceLevel}</td>
-                <td>{item.prepTime} min</td>
-                <td>
-                  <label className="toggle">
+      {menuItems.length === 0 ? (
+        <div className="empty-state">No menu items yet. Click "Add Menu Item" to create one.</div>
+      ) : (
+        <div className="menu-items-grid">
+          {menuItems.map(item => {
+            const catName = item.category?.name || item.category;
+            return (
+              <div key={item._id} className="menu-item-card">
+                <div className="menu-item-header">
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} className="menu-item-image" />
+                  ) : (
+                    <div className="menu-item-image menu-item-image-fallback">{item.name.charAt(0).toUpperCase()}</div>
+                  )}
+                  <div className="menu-item-info">
+                    <h4>{item.name}</h4>
+                    {item.description && <p>{item.description}</p>}
+                    <div className="menu-item-badges">
+                      {catName && <span className="menu-item-badge">{catName}</span>}
+                      <span className={`menu-item-badge ${item.isVeg ? "veg" : "nonveg"}`}>
+                        {item.isVeg ? "Veg" : "Non-veg"}
+                      </span>
+                      {item.spiceLevel && item.spiceLevel !== "none" && (
+                        <span className="menu-item-badge spice">{item.spiceLevel.replace("_", " ")}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="menu-item-body">
+                  <div className="menu-item-price">₹{item.price}</div>
+                  <div className="menu-item-meta">{item.prepTime} min</div>
+                  <span className={`status-badge ${item.isAvailable ? "active" : "inactive"}`}>
+                    {item.isAvailable ? "Available" : "Unavailable"}
+                  </span>
+                  <label className="toggle-switch" title={item.isAvailable ? "Click to make unavailable" : "Click to make available"}>
                     <input type="checkbox" checked={item.isAvailable} onChange={() => toggleAvailability(item)} />
                     <span className="slider"></span>
                   </label>
-                </td>
-                <td>
-                  <button className="btn btn-sm btn-secondary" onClick={() => openModal(item)}>Edit</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(item._id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  <div className="menu-item-actions">
+                    <button className="btn btn-sm btn-secondary" onClick={() => openModal(item)}>Edit</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(item._id)}>Delete</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
@@ -248,7 +276,7 @@ export default function MenuPage() {
                 </div>
                 <div className="form-group">
                   <label>Display Order</label>
-                  <input type="number" value={formData.displayOrder} onChange={e => setFormData(d => ({ ...d, displayOrder: e.target.value }))} />
+                  <input type="number" value={formData.displayOrder} onChange={e => setFormData(d => ({ ...d, displayOrder: e.target.value }))} placeholder="Auto" />
                 </div>
                 <div className="form-group full-width">
                   <label>Description</label>

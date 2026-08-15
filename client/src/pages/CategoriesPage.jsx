@@ -114,7 +114,13 @@ export default function CategoriesPage() {
       {error && <div className="toast error">{error}</div>}
 
       <div className="categories-list">
-        {categories.map((cat, index) => (
+        {categories.map((cat) => {
+          const parentName = cat.parentCategory
+            ? typeof cat.parentCategory === "object"
+              ? cat.parentCategory.name
+              : categories.find((c) => c._id === cat.parentCategory)?.name
+            : "";
+          return (
           <div key={cat._id} className="category-card">
             <div className="category-header">
               <div className="category-info">
@@ -125,8 +131,8 @@ export default function CategoriesPage() {
                   <span className={`status-badge ${cat.isActive ? "active" : "inactive"}`}>
                     {cat.isActive ? "Active" : "Inactive"}
                   </span>
-                  {cat.parentCategory && (
-                    <span className="parent-badge">Sub of: {cat.parentCategory.name}</span>
+                  {parentName && (
+                    <span className="parent-badge">Sub of: {parentName}</span>
                   )}
                 </div>
               </div>
@@ -149,7 +155,8 @@ export default function CategoriesPage() {
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {showModal && (
