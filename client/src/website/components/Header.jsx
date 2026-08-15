@@ -150,6 +150,44 @@ export default function Header({ restaurantName }) {
               </li>
             ))}
           </ul>
+          {(takeawayEnabled || deliveryEnabled) && (
+            <div className="mobile-nav-order">
+              <span className="mobile-nav-order-title">Order Type</span>
+              <div className="mobile-nav-ot" role="group" aria-label="Order type">
+                {takeawayEnabled && (
+                  <button
+                    type="button"
+                    className={`mobile-nav-ot-btn ${orderType === "takeaway" ? "active" : ""}`}
+                    onClick={() => handleOrderTypeChange("takeaway")}
+                    aria-pressed={orderType === "takeaway"}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <path d="M7 10l5 5 5-5" />
+                      <path d="M12 15V3" />
+                    </svg>
+                    Takeaway
+                  </button>
+                )}
+                {deliveryEnabled && (
+                  <button
+                    type="button"
+                    className={`mobile-nav-ot-btn ${orderType === "delivery" ? "active" : ""}`}
+                    onClick={() => handleOrderTypeChange("delivery")}
+                    aria-pressed={orderType === "delivery"}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <path d="M5 8h11l2 4v6H5z" />
+                      <circle cx="8" cy="18" r="1.5" />
+                      <circle cx="16" cy="18" r="1.5" />
+                      <path d="M16 12h4v3h-4" />
+                    </svg>
+                    Delivery
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </header>

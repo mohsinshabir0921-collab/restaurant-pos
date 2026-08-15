@@ -395,6 +395,7 @@ ol {
   justify-content: space-between;
   gap: 16px;
   height: 62px;
+  width: auto;
   margin: 10px 16px 0;
   padding: 0 12px 0 18px;
   border-radius: var(--radius-full);
@@ -3413,4 +3414,644 @@ ol {
 
 .footer-bottom p {
   margin: 0;
+}
+
+/* ==========================================================================
+   Mobile refinements — premium native-app feel on small screens.
+   All overrides live inside max-width media queries so the desktop/tablet
+   layout is untouched. Touch targets are bumped to >= 44px, side padding is
+   tightened to ~16px, and inputs stay 16px to prevent iOS zoom-on-focus.
+   ========================================================================== */
+
+/* Safety net: never allow stray horizontal overflow. `clip` avoids creating a
+   scroll container (which would break position: sticky on the page). */
+html,
+body {
+  overflow-x: clip;
+}
+
+@media (max-width: 640px) {
+  /* Compact mobile-first header */
+  :root {
+    --header-h: 64px;
+  }
+
+  .container {
+    padding: 0 16px;
+  }
+
+  .header-inner {
+    height: 56px;
+    margin: 8px 12px 0;
+    padding: 0 8px 0 14px;
+  }
+
+  .logo-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .logo-text {
+    font-size: 0.98rem;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .cart-trigger,
+  .mobile-menu-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .cart-badge {
+    min-width: 19px;
+    height: 19px;
+    font-size: 0.7rem;
+  }
+
+  /* Order-type switch moves into the mobile nav on small screens so the
+     floating header stays compact and never overflows. */
+  .order-type-switch {
+    display: none;
+  }
+
+  .mobile-nav {
+    margin: 4px 12px 0;
+  }
+
+  .mobile-nav-order {
+    padding: 4px 10px 12px;
+    border-top: 1px solid rgba(25, 25, 25, 0.07);
+  }
+
+  .mobile-nav-order-title {
+    display: block;
+    padding: 8px 8px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-400);
+  }
+
+  .mobile-nav-ot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .mobile-nav-ot-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 1px solid var(--ink-200);
+    border-radius: var(--radius-full);
+    background: var(--cream-0);
+    color: var(--ink-600);
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.3s var(--ease-out);
+  }
+
+  .mobile-nav-ot-btn.active {
+    background: var(--ink-900);
+    border-color: var(--ink-900);
+    color: #fff;
+  }
+
+  /* Hero — naturally scaling type, full-width thumb-friendly actions */
+  .home-page .hero {
+    min-height: max(560px, 84vh);
+  }
+
+  .hero-content {
+    padding: 118px 16px 96px;
+  }
+
+  .hero-eyebrow {
+    font-size: 0.7rem;
+    padding: 7px 14px;
+    margin-bottom: 20px;
+  }
+
+  .hero-title {
+    font-size: clamp(2.1rem, 8.6vw, 3.1rem);
+    margin-bottom: 16px;
+  }
+
+  .hero-subtitle {
+    font-size: 1rem;
+    line-height: 1.55;
+    margin-bottom: 30px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  .hero-actions .magnetic,
+  .hero-actions .btn {
+    width: 100%;
+  }
+
+  .hero-actions .btn-lg {
+    padding: 16px 24px;
+  }
+
+  .hero-scroll {
+    display: none;
+  }
+
+  /* Trim decorative spacing on small screens */
+  .features {
+    padding: 52px 0;
+  }
+
+  .features-grid {
+    gap: 30px;
+  }
+
+  .feature-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    margin-bottom: 16px;
+  }
+
+  .popular-section,
+  .menu-page-content {
+    padding: 20px 0 52px;
+  }
+
+  .section-heading {
+    margin-bottom: 26px;
+  }
+
+  .section-title {
+    font-size: 1.85rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.98rem;
+  }
+
+  /* Category pills become a hidden-scrollbar horizontal rail */
+  .category-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 0 26px;
+  }
+
+  .category-pills::-webkit-scrollbar {
+    display: none;
+  }
+
+  .category-pill {
+    flex: none;
+    padding: 12px 18px;
+    font-size: 0.88rem;
+  }
+
+  /* Menu cards — tighter but still breathable */
+  .menu-grid {
+    gap: 14px;
+  }
+
+  .menu-card {
+    gap: 14px;
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .dish-visual--sm {
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+  }
+
+  .dish-visual--sm .dish-visual__initial {
+    font-size: 1.7rem;
+  }
+
+  .menu-card-name {
+    font-size: 1rem;
+  }
+
+  .menu-card-desc {
+    font-size: 0.85rem;
+  }
+
+  .menu-card-bottom {
+    padding-top: 12px;
+  }
+
+  .menu-card-add {
+    width: 44px;
+    height: 44px;
+  }
+
+  .add-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Menu page tooling */
+  .menu-toolbar {
+    margin-bottom: 18px;
+  }
+
+  .menu-search input {
+    height: 48px;
+    font-size: 1rem;
+    padding: 12px 16px 12px 44px;
+  }
+
+  .filter-btn {
+    padding: 10px 16px;
+    font-size: 0.88rem;
+  }
+
+  .menu-category-nav {
+    top: calc(var(--header-h) - 2px);
+    margin-bottom: 22px;
+  }
+
+  .category-tab {
+    min-height: 46px;
+    padding: 10px 18px 10px 10px;
+  }
+
+  .menu-section {
+    margin-bottom: 48px;
+  }
+
+  .menu-section-heading {
+    margin-bottom: 18px;
+    gap: 14px;
+  }
+
+  .menu-section-title {
+    font-size: 1.7rem;
+  }
+
+  .page-hero {
+    padding: 32px 16px 20px;
+  }
+
+  .page-title {
+    font-size: 2rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.98rem;
+  }
+
+  /* Item detail */
+  .breadcrumb {
+    padding: 12px 0 20px;
+  }
+
+  .detail-layout {
+    gap: 20px;
+  }
+
+  .detail-media {
+    position: static;
+    border-radius: 20px;
+  }
+
+  .detail-name {
+    font-size: 1.85rem;
+  }
+
+  .detail-desc {
+    font-size: 1rem;
+  }
+
+  .detail-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .detail-footer .qty-stepper {
+    align-self: flex-start;
+  }
+
+  .detail-footer .btn {
+    width: 100%;
+  }
+
+  .qty-stepper {
+    align-self: flex-start;
+  }
+
+  .qty-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Item modal — bottom sheet with internal scroll */
+  .item-modal-body {
+    padding: 20px 18px 22px;
+  }
+
+  .item-modal-name {
+    font-size: 1.5rem;
+  }
+
+  .modal-close {
+    top: 12px;
+    right: 12px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .item-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .item-modal-footer .qty-stepper {
+    align-self: flex-start;
+  }
+
+  .item-modal-footer .btn {
+    width: 100%;
+  }
+
+  /* Cart */
+  .cart-content {
+    padding: 6px 6px 16px;
+  }
+
+  .cart-item {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .cart-item-media {
+    width: 68px;
+    height: 68px;
+  }
+
+  .cart-item-remove {
+    width: 40px;
+    height: 40px;
+  }
+
+  .qty-stepper.sm .qty-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .cart-empty {
+    padding: 48px 20px;
+  }
+
+  /* Cart drawer fills the phone */
+  .cart-drawer {
+    width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .drawer-header {
+    padding: 16px 18px;
+  }
+
+  .drawer-body {
+    padding: 14px 12px 18px;
+  }
+
+  .drawer-close {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Checkout — single column, no sticky overlap on mobile */
+  .checkout-layout {
+    gap: 16px;
+  }
+
+  .checkout-section {
+    padding: 20px 18px;
+    border-radius: 20px;
+  }
+
+  .checkout-section-title {
+    font-size: 1.05rem;
+    margin-bottom: 16px;
+  }
+
+  .step-number {
+    width: 28px;
+    height: 28px;
+  }
+
+  .form-grid {
+    gap: 14px;
+  }
+
+  .form-field label {
+    font-size: 0.85rem;
+  }
+
+  /* 16px inputs prevent iOS Safari zoom-on-focus and keep fields in viewport */
+  .form-field input,
+  .form-field textarea,
+  .notes-input,
+  .coupon-input-row input {
+    font-size: 1rem;
+    padding: 14px 15px;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .option-card,
+  .payment-option {
+    padding: 14px;
+  }
+
+  .coupon-input-row input {
+    height: 48px;
+  }
+
+  .coupon-input-row .btn {
+    padding: 13px 18px;
+  }
+
+  .checkout-summary {
+    position: static;
+    padding: 20px 18px;
+    border-radius: 20px;
+  }
+
+  .summary-items {
+    max-height: none;
+  }
+
+  .applied-coupon-remove {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Order confirmation */
+  .confirmation-card {
+    padding: 28px 18px;
+    border-radius: 24px;
+  }
+
+  .confirmation-icon {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 20px;
+  }
+
+  .confirmation-badge {
+    padding: 14px 26px;
+    margin-bottom: 26px;
+  }
+
+  .confirmation-block {
+    padding: 18px;
+  }
+
+  .confirmation-actions {
+    flex-direction: column;
+  }
+
+  .confirmation-actions .btn {
+    width: 100%;
+  }
+
+  /* About */
+  .about-section {
+    padding: 52px 0;
+  }
+
+  .about-grid {
+    gap: 26px;
+  }
+
+  .about-media-inner {
+    border-radius: 20px;
+  }
+
+  .about-text {
+    font-size: 1rem;
+    margin-bottom: 22px;
+  }
+
+  .about-stats {
+    gap: 22px;
+  }
+
+  .stat-value {
+    font-size: 1.6rem;
+  }
+
+  /* CTA */
+  .cta-section {
+    padding: 0 16px clamp(44px, 10vw, 80px);
+  }
+
+  .cta-box {
+    padding: 44px 20px;
+    border-radius: 24px;
+  }
+
+  .cta-subtitle {
+    font-size: 1rem;
+    margin-bottom: 26px;
+  }
+
+  .cta-actions {
+    flex-direction: column;
+  }
+
+  .cta-actions .magnetic,
+  .cta-actions .btn {
+    width: 100%;
+  }
+
+  .cta-actions .btn-lg {
+    padding: 16px 24px;
+  }
+
+  /* Footer stacks cleanly */
+  .site-footer {
+    padding-top: 44px;
+    margin-top: clamp(20px, 4vw, 40px);
+  }
+
+  .footer-grid {
+    gap: 32px;
+    padding-bottom: 40px;
+  }
+
+  .footer-bottom {
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* Toasts sit above the thumb zone */
+  .toast-container {
+    bottom: 16px;
+  }
+
+  .toast {
+    padding: 14px;
+    border-radius: 18px;
+    font-size: 0.9rem;
+  }
+
+  .toast-close {
+    width: 34px;
+    height: 34px;
+  }
+
+  /* Interior page bottom padding */
+  .page-container {
+    padding-bottom: 48px;
+  }
+}
+
+/* Very small phones (360px class) — one final tightening pass */
+@media (max-width: 400px) {
+  .logo-text {
+    font-size: 0.9rem;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .hero-title {
+    font-size: clamp(1.95rem, 8.8vw, 2.4rem);
+  }
+
+  .feature-icon {
+    width: 52px;
+    height: 52px;
+  }
+
+  .cart-item-media {
+    width: 62px;
+    height: 62px;
+  }
+
+  .confirmation-badge {
+    padding: 13px 20px;
+  }
 }

@@ -24,8 +24,14 @@
    Page transition (applied on route change)
    -------------------------------------------------------------------------- */
 .page-enter {
-  animation: pageEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: pageEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
+
+/* NOTE: fill-mode is `backwards` (not `both`) so the entrance transform does
+   not persist after the animation. A lingering transform value — even an
+   identity matrix — would establish a containing block and break
+   position:fixed children (item modal) by anchoring them to the page content
+   instead of the viewport. */
 
 /* --------------------------------------------------------------------------
    Magnetic helper
