@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "rea
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { menuAPI, orderAPI, tableAPI, customerAPI, settingsAPI, paymentAPI, couponAPI, loyaltyAPI } from "../services/api";
+import { menuAPI, orderAPI, tableAPI, customerAPI, settingsAPI, paymentAPI, couponAPI, loyaltyAPI, categoryAPI } from "../services/api";
 import {
   IconPOS,
   IconKitchen,
@@ -177,7 +177,7 @@ export default function POSPage() {
   const [error, setError] = useState("");
 
   const [menuItems, setMenuItems] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [allCategories, setAllCategories] = useState([]);
   const [tables, setTables] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTable, setSelectedTable] = useState(null);
@@ -332,18 +332,17 @@ export default function POSPage() {
     try {
       const [menuRes, catRes] = await Promise.all([
         menuAPI.getByCategory(),
-        menuAPI.getAll({ availableOnly: "true" }),
+        categoryAPI.getAll({ activeOnly: "true" }),
       ]);
-      
+
       if (menuRes.data.success) {
-        setCategories(menuRes.data.categories);
-        const allItems = menuRes.data.categories.flatMap(c => c.items);
-        setMenuItems(allItems);
-        
-        const catList = [...new Set(allItems.map(i => i.category?.name || "General"))];
-        setCategories(catList);
+        setMenuItems(menuRes.data.categories.flatMap(c => c.items));
       } else {
         setError(menuRes.data.message || "Failed to load menu");
+      }
+
+      if (catRes.data.success) {
+        setAllCategories(catRes.data.categories || []);
       }
     } catch (err) {
       setError("Failed to load menu");
@@ -459,7 +458,16 @@ export default function POSPage() {
     return menuItems.filter(item => item.category?.name === selectedCategory);
   }, [menuItems, selectedCategory]);
 
-  const categoryList = useMemo(() => ["All", ...new Set(menuItems.map(i => i.category?.name).filter(Boolean))], [menuItems]);
+  const categoryList = useMemo(() => {
+    // Build the selector from ALL active categories (so newly created / empty
+    // categories show up in the POS) plus any categories seen on items.
+    const names = new Set(allCategories.map(c => c.name).filter(Boolean));
+    menuItems.forEach(item => {
+      const n = item.category?.name;
+      if (n) names.add(n);
+    });
+    return ["All", ...names];
+  }, [allCategories, menuItems]);
 
   const addToCart = (item) => {
     setCartItems(prev => {

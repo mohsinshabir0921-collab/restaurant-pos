@@ -113,6 +113,9 @@ export default function CategoriesPage() {
 
       {error && <div className="toast error">{error}</div>}
 
+      {categories.length === 0 ? (
+        <div className="empty-state">No categories yet. Click "Add Category" to create one.</div>
+      ) : (
       <div className="categories-list">
         {categories.map((cat) => {
           const parentName = cat.parentCategory
@@ -158,6 +161,7 @@ export default function CategoriesPage() {
           );
         })}
       </div>
+      )}
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
