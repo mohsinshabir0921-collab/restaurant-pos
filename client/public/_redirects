@@ -1,0 +1,3 @@
+# Serve the public website for every non-asset path so the site root and any
+# direct path load /website.html (HashRouter handles #/... client-side routing).
+/*  /website.html  200

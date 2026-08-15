@@ -1,0 +1,268 @@
+/* ==========================================================================
+   Khyenn Chyenn — Motion & animation layer.
+   Scroll reveals, page transitions, magnetic/parallax helpers, keyframes.
+   All motion is disabled under prefers-reduced-motion.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Scroll reveal
+   -------------------------------------------------------------------------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px) scale(0.992);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.revealed {
+  opacity: 1;
+  transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   Page transition (applied on route change)
+   -------------------------------------------------------------------------- */
+.page-enter {
+  animation: pageEnter 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* --------------------------------------------------------------------------
+   Magnetic helper
+   -------------------------------------------------------------------------- */
+.magnetic {
+  display: inline-flex;
+  will-change: transform;
+}
+
+/* Reveal wrappers inside grids must not break the grid or card fill */
+.menu-grid > .reveal {
+  min-width: 0;
+}
+
+.menu-grid > .reveal .menu-card {
+  width: 100%;
+  height: 100%;
+}
+
+.menu-card-add {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-900);
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.5s var(--ease-spring), background-color 0.3s;
+}
+
+.menu-card:hover .menu-card-add {
+  background: var(--saffron-600);
+  transform: rotate(90deg) scale(1.08);
+}
+
+/* --------------------------------------------------------------------------
+   Keyframes
+   -------------------------------------------------------------------------- */
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(48px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Category section gentle entrance on scroll */
+@keyframes sectionIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Monogram ring slow breathing ornament (subtle, disabled on hover interaction)
+   Kept static under prefers-reduced-motion via the global override. */
+.dish-visual--sig .dish-visual__ring::after {
+  animation: ringDrift 14s linear infinite;
+}
+
+@keyframes ringDrift {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scrollDrop {
+  0% {
+    transform: scaleY(1);
+    transform-origin: top;
+  }
+  50% {
+    transform: scaleY(0.3);
+    transform-origin: top;
+  }
+  51% {
+    transform: scaleY(0.3);
+    transform-origin: bottom;
+  }
+  100% {
+    transform: scaleY(1);
+    transform-origin: bottom;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Hero entrance (staggered, one-shot)
+   -------------------------------------------------------------------------- */
+.hero-content .hero-eyebrow,
+.hero-content .hero-title,
+.hero-content .hero-subtitle,
+.hero-content .hero-actions {
+  animation: heroUp 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hero-content .hero-eyebrow {
+  animation-delay: 0.05s;
+}
+
+.hero-content .hero-title {
+  animation-delay: 0.18s;
+}
+
+.hero-content .hero-subtitle {
+  animation-delay: 0.32s;
+}
+
+.hero-content .hero-actions {
+  animation-delay: 0.46s;
+}
+
+@keyframes heroUp {
+  from {
+    opacity: 0;
+    transform: translateY(34px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Cart badge pop on change
+   -------------------------------------------------------------------------- */
+.cart-badge {
+  animation: badgePop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes badgePop {
+  0% {
+    transform: scale(0.4);
+  }
+  70% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Detail page loading skeleton */
+.detail-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.detail-skeleton-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (min-width: 860px) {
+  .detail-skeleton {
+    flex-direction: row;
+  }
+  .detail-skeleton .skeleton-block {
+    flex: 1.1;
+    aspect-ratio: auto;
+    min-height: 420px;
+    border-radius: var(--radius-xl);
+  }
+  .detail-skeleton-body {
+    flex: 1;
+  }
+}
+
+/* prefers-reduced-motion: disable all decorative motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .page-enter {
+    animation: none !important;
+  }
+
+  .hero-content .hero-eyebrow,
+  .hero-content .hero-title,
+  .hero-content .hero-subtitle,
+  .hero-content .hero-actions {
+    animation: none !important;
+  }
+
+  .magnetic {
+    transform: none !important;
+    transition: none !important;
+  }
+}

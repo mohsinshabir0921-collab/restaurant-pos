@@ -1,0 +1,8 @@
+# Public restaurant website deployment.
+# Set VITE_API_URL in the Netlify environment to the production backend API
+# base URL (e.g. https://your-api.example.com/api) before building.
+
+[build]
+  base = "client"
+  command = "npm run build"
+  publish = "dist"

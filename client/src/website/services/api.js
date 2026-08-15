@@ -1,0 +1,30 @@
+import axios from "axios";
+
+// Production API base is injected at build time via VITE_API_URL (set in the
+// hosting provider's environment, e.g. Netlify). Falls back to the same-origin
+// /api path so the local Vite dev proxy (vite.config.js -> /api) handles dev.
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
+const websiteApi = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    "Content-Type": "application/json",
+  },
+  timeout: 30000,
+});
+
+// Public website API calls. Order/payment/coupon calls go through the
+// dedicated public endpoints (/api/public) which reuse the same POS
+// controllers server-side with price/availability validation.
+export const websiteAPI = {
+  getPublicSettings: () => websiteApi.get("/settings/public"),
+  getMenuByCategory: () => websiteApi.get("/menu/by-category"),
+  getMenuItem: (id) => websiteApi.get(`/menu/${id}`),
+  getOrderEstimate: (data) => websiteApi.post("/public/order-estimate", data),
+  validateCoupon: (params) => websiteApi.get("/public/coupons/validate", { params }),
+  createOrder: (data) => websiteApi.post("/public/orders", data),
+  createRazorpayOrder: (orderId) => websiteApi.post("/public/payment/create-order", { orderId }),
+  verifyRazorpayPayment: (data) => websiteApi.post("/public/payment/verify", data),
+};
+
+export default websiteApi;
