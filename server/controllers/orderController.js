@@ -581,7 +581,11 @@ const createOrder = async (req, res) => {
     const isInstantPaid = ["cash", "card", "wallet"].includes(paymentMethod);
     const isSplit = paymentMethod === "split";
     const isCOD = paymentMethod === "cod" && orderType === "delivery";
-    console.log("Payment check:", { isInstantPaid, isSplit, isCOD, paymentMethod, orderType });
+    // UPI and COD are never settled at creation: only instant-paid methods
+    // (cash/card/wallet) and split payments create paid + confirmed orders.
+    // UPI stays pending until the Razorpay verify/webhook path succeeds.
+    const isPaidOnCreate = isInstantPaid || isSplit;
+    console.log("Payment check:", { isInstantPaid, isSplit, isCOD, paymentMethod, orderType, isPaidOnCreate });
 
     console.log("--- Step 15b: Inventory availability check ---");
     const shortages = await getInventoryShortages({ items: cleanItems });
@@ -619,9 +623,9 @@ const createOrder = async (req, res) => {
       loyaltyPointsUsed,
       total,
       paymentMethod,
-      paymentStatus: (isInstantPaid || isSplit) ? "paid" : (isCOD ? "pending" : "pending"),
-      paidAt: (isInstantPaid || isSplit) ? new Date() : null,
-      orderStatus: (isInstantPaid || isSplit) ? "confirmed" : "pending",
+      paymentStatus: isPaidOnCreate ? "paid" : "pending",
+      paidAt: isPaidOnCreate ? new Date() : null,
+      orderStatus: isPaidOnCreate ? "confirmed" : "pending",
       deliveryAddress,
       deliveryFee: Number(deliveryFee) || 0,
       pickupAt: pickupAt ? new Date(pickupAt) : null,
@@ -636,7 +640,7 @@ const createOrder = async (req, res) => {
     // the availability pre-check (e.g. a concurrent order consumed the stock),
     // reject cleanly and remove the just-created order so no partial state
     // (order/payment/table/loyalty/coupon) is left behind.
-    if (isInstantPaid || isSplit) {
+    if (isPaidOnCreate) {
       console.log("Deducting inventory for instant paid order");
       try {
         await deductInventoryForOrder(order, req.user._id);
@@ -676,7 +680,7 @@ const createOrder = async (req, res) => {
       await appliedCoupon.incrementUsage();
     }
 
-    if (isInstantPaid || isSplit) {
+    if (isPaidOnCreate) {
       console.log("Creating payment record");
       await Payment.create({
         order: order._id,
