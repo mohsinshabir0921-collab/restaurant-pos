@@ -112,6 +112,18 @@ const deductInventoryForOrder = async (order, userId) => {
   }
 };
 
+const buildRazorpayOrderResponse = (order, razorpayOrder) => ({
+  success: true,
+  key: process.env.RAZORPAY_KEY_ID,
+  orderId: order._id,
+  razorpayOrderId: razorpayOrder.id,
+  amount: razorpayOrder.amount,
+  currency: razorpayOrder.currency,
+  customerName: order.customerName || "",
+  phone: order.phone || "",
+  email: order.email || "",
+});
+
 const createRazorpayOrder = async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -139,13 +151,49 @@ const createRazorpayOrder = async (req, res) => {
       });
     }
 
+    const expectedAmount = Math.round(Number(order.total) * 100);
+
+    // Idempotency: a restaurant order must map to at most one Razorpay order.
+    // Razorpay orders are immutable, so a previously created order can only be
+    // reused when its amount/currency still match the current total. If the
+    // order changed, a fresh Razorpay order is created instead.
+    if (order.razorpayOrderId) {
+      try {
+        const existingOrder = await razorpay.orders.fetch(order.razorpayOrderId);
+        if (
+          existingOrder &&
+          existingOrder.id === order.razorpayOrderId &&
+          Number(existingOrder.amount) === expectedAmount &&
+          existingOrder.currency === "INR"
+        ) {
+          order.paymentMethod = "upi";
+          order.paymentGateway = "razorpay";
+          order.paymentStatus = "pending";
+          await order.save();
+
+          return res.status(200).json(buildRazorpayOrderResponse(order, existingOrder));
+        }
+      } catch (fetchError) {
+        console.error("RAZORPAY ORDER FETCH ERROR:", fetchError.message);
+      }
+    }
+
     const options = {
-      amount: Math.round(Number(order.total) * 100),
+      amount: expectedAmount,
       currency: "INR",
       receipt: `order_${order._id}`.slice(0, 40),
       notes: {
         orderId: order._id.toString(),
         customerName: order.customerName || "",
+      },
+      // Explicit automatic capture: the order-level setting overrides any
+      // Dashboard capture configuration, so payments are captured automatically
+      // and the existing server-side "captured" verification stays valid.
+      payment: {
+        capture: "automatic",
+        capture_options: {
+          automatic_expiry_period: 12,
+        },
       },
     };
 
@@ -158,17 +206,7 @@ const createRazorpayOrder = async (req, res) => {
 
     await order.save();
 
-    return res.status(200).json({
-      success: true,
-      key: process.env.RAZORPAY_KEY_ID,
-      orderId: order._id,
-      razorpayOrderId: razorpayOrder.id,
-      amount: razorpayOrder.amount,
-      currency: razorpayOrder.currency,
-      customerName: order.customerName || "",
-      phone: order.phone || "",
-      email: order.email || "",
-    });
+    return res.status(200).json(buildRazorpayOrderResponse(order, razorpayOrder));
   } catch (error) {
     console.error(
       "CREATE RAZORPAY ORDER ERROR:",
@@ -186,6 +224,10 @@ const markPaymentFailed = async (order, reason) => {
   const existing = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
 
   if (existing) {
+    // Never downgrade a settled payment ledger entry to failed.
+    if (existing.status === "paid") {
+      return existing;
+    }
     if (existing.status !== "failed") {
       await existing.markFailed(reason);
     }
@@ -429,4 +471,6 @@ const verifyRazorpayPayment = async (req, res) => {
 module.exports = {
   createRazorpayOrder,
   verifyRazorpayPayment,
+  markPaymentFailed,
+  deductInventoryForOrder,
 };
