@@ -206,7 +206,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["pending", "confirmed", "preparing", "ready", "served", "paid", "completed", "cancelled", "refunded"],
+      enum: ["pending", "confirmed", "preparing", "ready", "out_for_delivery", "delivered", "served", "paid", "completed", "cancelled", "refunded"],
       default: "pending",
       index: true,
     },
@@ -264,6 +264,11 @@ const orderSchema = new mongoose.Schema(
     },
     actualDeliveryTime: {
       type: Date,
+    },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
     pickupAt: {
       type: Date,
@@ -341,12 +346,15 @@ orderSchema.index({ table: 1, orderStatus: 1 });
 orderSchema.index({ orderType: 1, orderStatus: 1 });
 orderSchema.index({ paymentStatus: 1, orderStatus: 1 });
 orderSchema.index({ "items.menuItemId": 1 });
+orderSchema.index({ assignedTo: 1, orderStatus: 1 });
 
 const ALLOWED_TRANSITIONS = {
   pending: ["confirmed", "preparing", "cancelled"],
   confirmed: ["preparing", "cancelled"],
   preparing: ["ready", "served", "cancelled"],
-  ready: ["served", "cancelled"],
+  ready: ["served", "out_for_delivery", "cancelled"],
+  out_for_delivery: ["delivered"],
+  delivered: ["paid", "completed"],
   served: ["paid", "completed", "cancelled"],
   paid: ["completed", "cancelled"],
   completed: ["refunded"],

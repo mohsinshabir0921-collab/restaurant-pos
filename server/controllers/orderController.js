@@ -21,12 +21,21 @@ const ALLOWED_ORDER_STATUSES = [
   "confirmed",
   "preparing",
   "ready",
+  "out_for_delivery",
+  "delivered",
   "served",
   "paid",
   "completed",
   "cancelled",
   "refunded",
 ];
+
+// Delivery users may only drive their own assigned delivery order through the
+// delivery lifecycle. Admin and kitchen keep the full transition matrix.
+const DELIVERY_ALLOWED_TRANSITIONS = {
+  ready: ["out_for_delivery"],
+  out_for_delivery: ["delivered"],
+};
 
 const calculateTax = async (subtotal, items, isInterState = false) => {
   const taxInclusive = await Settings.getValue("tax_inclusive", false);
@@ -911,6 +920,31 @@ const updateOrderStatus = async (req, res) => {
         success: false,
         message: "Order not found",
       });
+    }
+
+    if (req.user.role === "delivery") {
+      if (existingOrder.orderType !== "delivery") {
+        return res.status(403).json({
+          success: false,
+          message: "Delivery users can only update delivery orders",
+        });
+      }
+      if (!existingOrder.assignedTo || existingOrder.assignedTo.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not assigned to this delivery",
+        });
+      }
+      const allowedNext = DELIVERY_ALLOWED_TRANSITIONS[existingOrder.orderStatus] || [];
+      if (!allowedNext.includes(normalizedStatus)) {
+        return res.status(403).json({
+          success: false,
+          message:
+            allowedNext.length > 0
+              ? `Delivery users can only change this order from ${existingOrder.orderStatus} to ${allowedNext.join(", ")}`
+              : `This order is ${existingOrder.orderStatus} and cannot be advanced by a delivery user`,
+        });
+      }
     }
 
     if (!existingOrder.canTransitionTo(normalizedStatus)) {

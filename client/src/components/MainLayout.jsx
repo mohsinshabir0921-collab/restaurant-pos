@@ -39,6 +39,7 @@ const NAV_GROUPS = [
       { name: "POS", href: "/", icon: IconPOS, roles: ["admin", "cashier"] },
       { name: "Dashboard", href: "/dashboard", icon: IconDashboard, roles: ["admin"] },
       { name: "Kitchen", href: "/kitchen", icon: IconKitchen, roles: ["admin", "kitchen"] },
+      { name: "Delivery", href: "/delivery", icon: IconDelivery, roles: ["delivery"] },
       { name: "Reports", href: "/reports", icon: IconReports, roles: ["admin"] },
     ],
   },

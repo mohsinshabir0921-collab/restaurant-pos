@@ -6,6 +6,7 @@ import LoginPage from "./pages/LoginPage";
 import POSPage from "./pages/POSPage";
 import DashboardPage from "./pages/DashboardPage";
 import KitchenPage from "./pages/KitchenPage";
+import DeliveryPage from "./pages/DeliveryPage";
 import ReportsPage from "./pages/ReportsPage";
 import MenuPage from "./pages/MenuPage";
 import CategoriesPage from "./pages/CategoriesPage";
@@ -39,6 +40,7 @@ function AppRoutes() {
         <Route path="/" element={<POSPage />} />
         <Route path="/dashboard" element={<ProtectedRoute allowedRoles={["admin"]}><DashboardPage /></ProtectedRoute>} />
         <Route path="/kitchen" element={<ProtectedRoute allowedRoles={["admin", "kitchen"]}><KitchenPage /></ProtectedRoute>} />
+        <Route path="/delivery" element={<ProtectedRoute allowedRoles={["delivery"]}><DeliveryPage /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute allowedRoles={["admin"]}><ReportsPage /></ProtectedRoute>} />
         <Route path="/menu" element={<ProtectedRoute allowedRoles={["admin"]}><MenuPage /></ProtectedRoute>} />
         <Route path="/categories" element={<ProtectedRoute allowedRoles={["admin"]}><CategoriesPage /></ProtectedRoute>} />

@@ -19,11 +19,18 @@ const {
 const { protect } = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
+const {
+  assignDeliveryBoy,
+  getOrderTracking,
+} = require("../controllers/deliveryController");
+
 router.post("/", protect, authorizeRoles("admin", "cashier"), createOrder);
 router.get("/", protect, authorizeRoles("admin", "cashier"), getAllOrders);
 router.get("/kitchen", protect, authorizeRoles("admin", "kitchen"), getKitchenOrders);
 router.get("/:id", protect, authorizeRoles("admin", "cashier"), getOrderById);
-router.patch("/:id/status", protect, authorizeRoles("admin", "kitchen"), updateOrderStatus);
+router.get("/:id/tracking", protect, authorizeRoles("admin", "cashier", "delivery"), getOrderTracking);
+router.post("/:id/assign", protect, authorizeRoles("admin", "cashier"), assignDeliveryBoy);
+router.patch("/:id/status", protect, authorizeRoles("admin", "kitchen", "delivery"), updateOrderStatus);
 router.patch("/:id/items/:itemIndex/kitchen-status", protect, authorizeRoles("admin", "kitchen"), updateItemKitchenStatus);
 router.put("/:id", protect, authorizeRoles("admin", "cashier"), updateOrder);
 router.post("/:id/items", protect, authorizeRoles("admin", "cashier"), addItemsToOrder);

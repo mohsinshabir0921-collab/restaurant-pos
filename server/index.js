@@ -42,6 +42,7 @@ const loyaltyRoutes = require("./routes/loyaltyRoutes");
 const communicationRoutes = require("./routes/communicationRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const publicRoutes = require("./routes/publicRoutes");
+const deliveryRoutes = require("./routes/deliveryRoutes");
 
 const app = express();
 
@@ -106,6 +107,7 @@ app.use("/api/loyalty", loyaltyRoutes);
 app.use("/api/communications", communicationRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/public", publicRoutes);
+app.use("/api/deliveries", deliveryRoutes);
 
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 app.use(notFound);

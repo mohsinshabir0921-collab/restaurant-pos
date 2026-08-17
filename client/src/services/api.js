@@ -202,6 +202,12 @@ export const orderAPI = {
   printInvoice: (id) => api.post(`/orders/${id}/print-invoice`),
 };
 
+export const deliveryAPI = {
+  getAssigned: () => api.get("/deliveries/assigned"),
+  reportLocation: (orderId, lat, lng) => api.post("/deliveries/location", { orderId, lat, lng }),
+  getTracking: (id) => api.get(`/orders/${id}/tracking`),
+};
+
 export const reportAPI = {
   getToday: () => api.get("/reports/today"),
   getDashboard: () => api.get("/reports/dashboard"),
