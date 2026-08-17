@@ -18,6 +18,7 @@ const websiteApi = axios.create({
 // controllers server-side with price/availability validation.
 export const websiteAPI = {
   getPublicSettings: () => websiteApi.get("/settings/public"),
+  getActiveBanners: () => websiteApi.get("/public/banners"),
   getMenuByCategory: () => websiteApi.get("/menu/by-category"),
   getMenuItem: (id) => websiteApi.get(`/menu/${id}`),
   getOrderEstimate: (data) => websiteApi.post("/public/order-estimate", data),

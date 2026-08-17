@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { useWebsite } from "../context/WebsiteContext";
 import { useCart } from "../context/CartContext";
 import { ToastProvider } from "../context/ToastContext";
+import AnnouncementBar from "./AnnouncementBar";
 import Header from "./Header";
 import Footer from "./Footer";
 import CartDrawer from "./CartDrawer";
@@ -17,6 +18,7 @@ export default function WebsiteLayout() {
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
+        <AnnouncementBar />
         <Header restaurantName={restaurantName} />
         <main id="main-content" className="main-content">
           <div key={location.pathname} className="page-enter">

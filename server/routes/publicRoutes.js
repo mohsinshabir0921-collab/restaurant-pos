@@ -9,6 +9,7 @@ const User = require("../models/User");
 
 const { createOrder, calculateTax, calculateServiceCharge, applyCoupon } = require("../controllers/orderController");
 const { validateCoupon } = require("../controllers/couponController");
+const { getPublicActive } = require("../controllers/bannerController");
 const { createRazorpayOrder, verifyRazorpayPayment } = require("../controllers/paymentController");
 const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
 const {
@@ -312,6 +313,7 @@ router.post("/orders", validatePublicOrder, attachWebsiteUser, createOrder);
 router.get("/orders/recent", getPublicRecentOrders);
 router.get("/orders/:orderNumber/track", getPublicOrderTracking);
 router.post("/order-estimate", getOrderEstimate);
+router.get("/banners", getPublicActive);
 router.get("/coupons/validate", validateCoupon);
 router.post("/payment/create-order", attachWebsiteUser, createRazorpayOrder);
 router.post("/payment/verify", attachWebsiteUser, verifyRazorpayPayment);

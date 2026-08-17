@@ -14,6 +14,7 @@ import CategoriesPage from "./pages/CategoriesPage";
 import TablesPage from "./pages/TablesPage";
 import CustomersPage from "./pages/CustomersPage";
 import CouponsPage from "./pages/CouponsPage";
+import BannersPage from "./pages/BannersPage";
 import StaffPage from "./pages/StaffPage";
 import SettingsPage from "./pages/SettingsPage";
 import InventoryPage from "./pages/InventoryPage";
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/tables" element={<ProtectedRoute allowedRoles={["admin"]}><TablesPage /></ProtectedRoute>} />
         <Route path="/customers" element={<ProtectedRoute allowedRoles={["admin", "cashier"]}><CustomersPage /></ProtectedRoute>} />
         <Route path="/coupons" element={<ProtectedRoute allowedRoles={["admin"]}><CouponsPage /></ProtectedRoute>} />
+        <Route path="/banners" element={<ProtectedRoute allowedRoles={["admin"]}><BannersPage /></ProtectedRoute>} />
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["admin"]}><StaffPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SettingsPage /></ProtectedRoute>} />
         <Route path="/inventory" element={<ProtectedRoute allowedRoles={["admin"]}><InventoryPage /></ProtectedRoute>} />

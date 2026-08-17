@@ -41,6 +41,7 @@ const wasteRoutes = require("./routes/wasteRoutes");
 const loyaltyRoutes = require("./routes/loyaltyRoutes");
 const communicationRoutes = require("./routes/communicationRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const bannerRoutes = require("./routes/bannerRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const deliveryRoutes = require("./routes/deliveryRoutes");
 
@@ -106,6 +107,7 @@ app.use("/api/waste", wasteRoutes);
 app.use("/api/loyalty", loyaltyRoutes);
 app.use("/api/communications", communicationRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/banners", bannerRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/deliveries", deliveryRoutes);
 

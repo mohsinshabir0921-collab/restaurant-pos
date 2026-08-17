@@ -1333,6 +1333,17 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
   box-shadow: var(--shadow-xs);
 }
 
+.table-container tr.row-expired td {
+  opacity: 0.55;
+  background: var(--color-bg-hover);
+}
+
+.cell-sub {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

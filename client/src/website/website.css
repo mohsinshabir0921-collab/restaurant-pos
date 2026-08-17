@@ -4109,3 +4109,113 @@ body {
     padding: 13px 20px;
   }
 }
+
+/* ==========================================================================
+   Announcement / promotional banner bar
+   Fixed above the site header. Height is published as --announce-h by
+   AnnouncementBar (ResizeObserver) so the fixed header and content shift down.
+   ========================================================================== */
+.announcement-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 120;
+  background: linear-gradient(135deg, var(--saffron-600), var(--saffron-700));
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.announcement-bar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 18px;
+  padding: 8px 16px;
+}
+
+.announcement-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+button.announcement-item {
+  cursor: pointer;
+}
+
+button.announcement-item:hover .announcement-title,
+button.announcement-item:hover .announcement-cta {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.announcement-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.announcement-desc {
+  opacity: 0.92;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.announcement-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px dashed rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.announcement-cta {
+  font-weight: 700;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.announcement-cta::after {
+  content: " →";
+}
+
+.site-header {
+  top: var(--announce-h, 0px);
+}
+
+.main-content {
+  padding-top: calc(var(--header-h) + var(--announce-h, 0px));
+}
+
+@media (max-width: 639px) {
+  .announcement-bar-inner {
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 7px 16px;
+  }
+
+  .announcement-item {
+    text-align: center;
+  }
+
+  .announcement-desc {
+    white-space: normal;
+  }
+}

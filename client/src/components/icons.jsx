@@ -102,6 +102,13 @@ export const IconCoupons = (p) => (
   </svg>
 );
 
+export const IconBanner = (p) => (
+  <svg {...Icon(p)}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 15l5-5 4 4 3-3 6 6" />
+  </svg>
+);
+
 export const IconInventory = (p) => (
   <svg {...Icon(p)}>
     <path d="M21 8l-9-5-9 5v8l9 5 9-5z" />

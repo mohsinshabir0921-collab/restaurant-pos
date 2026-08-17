@@ -187,6 +187,14 @@ export const couponAPI = {
   toggle: (id, isActive) => api.patch(`/coupons/${id}/toggle`, { isActive }),
 };
 
+export const bannerAPI = {
+  getAll: () => api.get("/banners"),
+  create: (data) => api.post("/banners", data),
+  update: (id, data) => api.put(`/banners/${id}`, data),
+  delete: (id) => api.delete(`/banners/${id}`),
+  toggle: (id, isActive) => api.patch(`/banners/${id}/toggle`, { isActive }),
+};
+
 export const orderAPI = {
   create: (data) => api.post("/orders", data),
   getAll: (params) => api.get("/orders", { params }),

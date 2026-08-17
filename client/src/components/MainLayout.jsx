@@ -11,7 +11,8 @@ import {
   IconCategories,
   IconTables,
   IconCustomers,
-  IconCoupons,
+IconCoupons,
+  IconBanner,
   IconInventory,
   IconRecipes,
   IconStaff,
@@ -57,6 +58,7 @@ const NAV_GROUPS = [
     items: [
       { name: "Customers", href: "/customers", icon: IconCustomers, roles: ["admin", "cashier"] },
       { name: "Coupons", href: "/coupons", icon: IconCoupons, roles: ["admin"] },
+      { name: "Banners", href: "/banners", icon: IconBanner, roles: ["admin"] },
       { name: "Loyalty", href: "/loyalty", icon: IconLoyalty, roles: ["admin"] },
       { name: "Communications", href: "/communications", icon: IconCommunications, roles: ["admin"] },
     ],
