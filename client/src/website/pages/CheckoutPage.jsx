@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useOrder } from "../context/OrderContext";
 import { useWebsite } from "../context/WebsiteContext";
@@ -183,16 +183,32 @@ export default function CheckoutPage() {
 
   const couponOrderAmount = displayEstimate.subtotal;
 
-  const handleApplyCoupon = useCallback(async () => {
+  const handleApplyCoupon = useCallback(async (codeOverride) => {
     clearCouponError();
-    const code = couponInput.trim();
+    const code = String(codeOverride ?? couponInput).trim();
     if (!code) return;
     const coupon = await validateCoupon(code, couponOrderAmount, effectiveOrderType);
     if (coupon) {
       setAppliedCoupon(coupon);
+      setCouponInput(code);
       notify("success", `Coupon ${coupon.code} applied`);
     }
-  }, [couponInput, couponOrderAmount, effectiveOrderType, validateCoupon, clearCouponError, notify]);
+  }, [couponInput, couponOrderAmount, effectiveOrderType, validateCoupon, clearCouponError, notify, setCouponInput]);
+
+  // A promotional banner can deep-link here with ?coupon=CODE; apply it once.
+  const [searchParams] = useSearchParams();
+  const bannerCouponRef = useRef(false);
+  useEffect(() => {
+    if (bannerCouponRef.current) return;
+    const code = (searchParams.get("coupon") || "").trim();
+    if (!code) return;
+    bannerCouponRef.current = true;
+    // Applying a coupon is an async validation that eventually sets state; the
+    // URL is the external system, so triggering it from the effect is intended.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    handleApplyCoupon(code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRemoveCoupon = () => {
     setAppliedCoupon(null);
@@ -594,7 +610,7 @@ export default function CheckoutPage() {
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      onClick={handleApplyCoupon}
+                      onClick={() => handleApplyCoupon()}
                       disabled={couponValidating || !couponInput.trim()}
                     >
                       {couponValidating ? "…" : "Apply"}
