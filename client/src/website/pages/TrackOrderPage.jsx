@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { websiteAPI } from "../services/api";
 import { useWebsite } from "../context/WebsiteContext";
 import DeliveryMap from "../../components/DeliveryMap";
+import { formatPrice } from "../components/common";
 
 const POLL_MS = 8000;
 const TERMINAL_STATUSES = ["delivered", "cancelled", "completed", "refunded"];
@@ -14,8 +15,11 @@ const STATUS_COPY = {
   ready: "Order ready",
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
-  cancelled: "Cancelled",
+  served: "Served",
+  paid: "Paid",
   completed: "Completed",
+  cancelled: "Cancelled",
+  refunded: "Refunded",
 };
 
 const formatAddress = (addr) => {
@@ -36,6 +40,21 @@ const formatTime = (value) => {
   }
 };
 
+const formatDateTime = (value) => {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+};
+
 export default function TrackOrderPage() {
   const { orderNumber } = useParams();
   const { restaurantName } = useWebsite();
@@ -46,16 +65,104 @@ export default function TrackOrderPage() {
         <div className="track-hero">
           <h1>Track your order</h1>
           <p>
-            Enter the phone number you used when placing your order to see live
-            delivery updates.
+            {orderNumber
+              ? "Enter the phone number you used when placing your order to see its live updates."
+              : "Enter the phone number you used when placing your order to find your recent orders."}
           </p>
         </div>
-        <TrackOrderContent
-          key={orderNumber}
-          orderNumber={orderNumber}
-          restaurantName={restaurantName}
-        />
+        {orderNumber ? (
+          <TrackOrderContent
+            key={orderNumber}
+            orderNumber={orderNumber}
+            restaurantName={restaurantName}
+          />
+        ) : (
+          <RecentOrdersLookup />
+        )}
       </div>
+    </div>
+  );
+}
+
+function RecentOrdersLookup() {
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [orders, setOrders] = useState([]);
+  const [error, setError] = useState("");
+
+  const findOrders = async (e) => {
+    e.preventDefault();
+    const trimmed = phone.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await websiteAPI.getRecentOrders(trimmed);
+      setOrders(res.data?.orders || []);
+    } catch (err) {
+      setOrders([]);
+      setError(err.response?.data?.message || "Could not look up your orders. Please try again.");
+    } finally {
+      setSearched(true);
+      setLoading(false);
+    }
+  };
+
+  const showEmpty = searched && !loading && !error && orders.length === 0;
+
+  return (
+    <div className="track-lookup">
+      <form className="track-form" onSubmit={findOrders}>
+        <div className="track-field">
+          <label htmlFor="track-lookup-phone">Phone number</label>
+          <input
+            id="track-lookup-phone"
+            type="tel"
+            autoComplete="tel"
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Enter the phone number used at checkout"
+            required
+          />
+        </div>
+        {error && <p className="track-error">{error}</p>}
+        <button className="btn btn-primary" type="submit" disabled={loading}>
+          {loading ? "Finding your orders…" : "Find My Orders"}
+        </button>
+      </form>
+
+      {loading && <p className="track-loading">Finding your recent orders…</p>}
+
+      {showEmpty && (
+        <div className="track-empty">
+          <p>No recent orders found for this phone number.</p>
+          <p>Check the number you used at checkout and try again.</p>
+        </div>
+      )}
+
+      {searched && !loading && orders.length > 0 && (
+        <ul className="recent-orders-list">
+          {orders.map((order) => (
+            <li key={order.orderNumber} className="recent-order-card">
+              <div className="recent-order-top">
+                <span className="recent-order-number">{order.orderNumber}</span>
+                <span className={`track-status ${order.orderStatus}`}>
+                  {STATUS_COPY[order.orderStatus] || order.orderStatus}
+                </span>
+              </div>
+              <div className="recent-order-meta">
+                <span>{formatDateTime(order.createdAt)}</span>
+                <span>{formatPrice(order.total)}</span>
+              </div>
+              <Link className="btn btn-primary" to={`/track/${order.orderNumber}`}>
+                Track Order
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -84,7 +191,7 @@ function TrackOrderContent({ orderNumber, restaurantName }) {
       setTracking(null);
       setError(
         err.response?.status === 404
-          ? "Order not found. Please check the order number and the phone number you entered."
+          ? "Order not found. Please check the phone number you entered."
           : err.response?.data?.message || "Could not load your order tracking. Please try again."
       );
     } finally {
@@ -121,7 +228,7 @@ function TrackOrderContent({ orderNumber, restaurantName }) {
       <form className="track-form" onSubmit={handleSubmit}>
         <div className="track-field">
           <label htmlFor="track-order-number">Order number</label>
-          <input id="track-order-number" type="text" value={orderNumber || ""} readOnly />
+          <input id="track-order-number" type="text" value={orderNumber} readOnly />
         </div>
         <div className="track-field">
           <label htmlFor="track-phone">Phone number</label>

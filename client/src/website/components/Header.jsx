@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { path: "/", label: "Home" },
   { path: "/menu", label: "Menu" },
   { path: "/cart", label: "Cart" },
+  { path: "/track", label: "Track Order" },
 ];
 
 export default function Header({ restaurantName }) {

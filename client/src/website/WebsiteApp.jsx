@@ -25,6 +25,7 @@ export default function WebsiteApp() {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
               <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
+              <Route path="/track" element={<TrackOrderPage />} />
               <Route path="/track/:orderNumber" element={<TrackOrderPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>

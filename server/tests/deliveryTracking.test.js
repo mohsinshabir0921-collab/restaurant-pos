@@ -126,6 +126,12 @@ const createStubs = (store) => {
       store.lastFindQuery = query;
       return {
         sort: () => ({
+          limit: (n) => {
+            store.lastLimit = n;
+            return {
+              lean: async () => store.recentOrdersResult || [],
+            };
+          },
           lean: async () => store.assignedResult,
         }),
       };
@@ -721,6 +727,134 @@ test("public tracking rejects non-delivery orders", async () => {
     res
   );
   assert.equal(res._status, 400);
+});
+
+test("public tracking still requires both order number and phone", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null };
+  const order = makeOrder({ customerPhone: "9876543210" });
+  store.orders.push(order);
+
+  const { deliveryController } = freshLoad(store);
+
+  const noPhone = makeRes();
+  await deliveryController.getPublicOrderTracking(
+    makeReq({ params: { orderNumber: order.orderNumber }, query: {} }),
+    noPhone
+  );
+  assert.equal(noPhone._status, 400, "tracking must still require the phone");
+
+  const noOrderNumber = makeRes();
+  await deliveryController.getPublicOrderTracking(
+    makeReq({ params: {}, query: { phone: "9876543210" } }),
+    noOrderNumber
+  );
+  assert.equal(noOrderNumber._status, 400, "tracking must still require the order number");
+});
+
+// ---------------------------------------------------------------------------
+// Public recent orders (phone-first lookup)
+// ---------------------------------------------------------------------------
+
+test("recent orders filters server-side by the supplied phone number", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  const mine1 = makeOrder({ orderNumber: "ORD202608170001", customerPhone: "9876543210", createdAt: new Date("2026-08-17T10:00:00Z") });
+  const mine2 = makeOrder({ orderNumber: "ORD202608170002", customerPhone: "9876543210", createdAt: new Date("2026-08-17T11:00:00Z") });
+  const theirs = makeOrder({ orderNumber: "ORD202608170003", customerPhone: "1111111111", createdAt: new Date("2026-08-17T12:00:00Z") });
+  store.orders.push(mine1, mine2, theirs);
+  store.recentOrdersResult = [mine2, mine1];
+
+  const { deliveryController } = freshLoad(store);
+  const res = makeRes();
+  await deliveryController.getPublicRecentOrders(makeReq({ query: { phone: "9876543210" } }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(store.lastFindQuery.customerPhone, "9876543210", "the query must be filtered by the caller's phone");
+  assert.equal(res._body.orders.length, 2);
+  const numbers = res._body.orders.map((o) => o.orderNumber);
+  assert.ok(numbers.includes("ORD202608170001"));
+  assert.ok(numbers.includes("ORD202608170002"));
+  assert.equal(numbers.includes("ORD202608170003"), false, "another customer's order must never appear");
+});
+
+test("recent orders returns an empty list for an unrelated phone", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  store.orders.push(makeOrder({ orderNumber: "ORD202608170001", customerPhone: "9876543210" }));
+
+  const { deliveryController } = freshLoad(store);
+  const res = makeRes();
+  await deliveryController.getPublicRecentOrders(makeReq({ query: { phone: "9999999999" } }), res);
+
+  assert.equal(res._status, 200, "an unknown phone must not 404 and must not reveal whether it exists");
+  assert.deepEqual(res._body.orders, []);
+});
+
+test("recent orders requires a phone number", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  const { deliveryController } = freshLoad(store);
+  const res = makeRes();
+  await deliveryController.getPublicRecentOrders(makeReq({ query: {} }), res);
+  assert.equal(res._status, 400);
+});
+
+test("recent orders response contains only safe customer-facing fields", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  const order = makeOrder({
+    orderNumber: "ORD202608170001",
+    customerPhone: "9876543210",
+    customerName: "Asha",
+    customerEmail: "secret@test.com",
+    paymentMethod: "upi",
+    paymentStatus: "paid",
+    razorpayPaymentId: "pay_secret",
+    deliveryAddress: { line1: "1 Main St", latitude: 28.6139, longitude: 77.249 },
+    total: 354,
+    assignedTo: new mongoose.Types.ObjectId(),
+    createdAt: new Date("2026-08-17T10:00:00Z"),
+  });
+  store.orders.push(order);
+  store.recentOrdersResult = [order];
+
+  const { deliveryController } = freshLoad(store);
+  const res = makeRes();
+  await deliveryController.getPublicRecentOrders(makeReq({ query: { phone: "9876543210" } }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.orders.length, 1);
+  const safe = res._body.orders[0];
+  assert.deepEqual(
+    Object.keys(safe).sort(),
+    ["createdAt", "orderNumber", "orderStatus", "orderType", "total"]
+  );
+  assert.equal(safe.total, 354);
+  assert.equal(safe.orderNumber, order.orderNumber);
+});
+
+test("recent orders limits results to the latest 10", async () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  const orders = Array.from({ length: 12 }, (_, i) =>
+    makeOrder({
+      orderNumber: `ORD20260817${String(i + 1).padStart(4, "0")}`,
+      customerPhone: "9876543210",
+      createdAt: new Date(Date.UTC(2026, 7, 17, i + 1)),
+    })
+  );
+  store.orders.push(...orders);
+  store.recentOrdersResult = orders.slice(0, 10);
+
+  const { deliveryController } = freshLoad(store);
+  const res = makeRes();
+  await deliveryController.getPublicRecentOrders(makeReq({ query: { phone: "9876543210" } }), res);
+
+  assert.equal(res._status, 200);
+  assert.equal(store.lastLimit, 10, "the query must be capped at 10");
+  assert.equal(res._body.orders.length, 10);
+});
+
+test("recent orders route is mounted on the public router", () => {
+  const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null, recentOrdersResult: [] };
+  const { publicRoutes } = freshLoad(store);
+  const handlers = getRouteHandlers(publicRoutes, "get", "/orders/recent");
+  assert.equal(typeof handlers[0], "function");
 });
 
 // ---------------------------------------------------------------------------

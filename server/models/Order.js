@@ -341,6 +341,7 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ orderNumber: 1 });
 orderSchema.index({ invoiceNumber: 1 });
+orderSchema.index({ customerPhone: 1, createdAt: -1 });
 orderSchema.index({ customer: 1, createdAt: -1 });
 orderSchema.index({ table: 1, orderStatus: 1 });
 orderSchema.index({ orderType: 1, orderStatus: 1 });

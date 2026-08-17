@@ -10,7 +10,7 @@ const User = require("../models/User");
 const { createOrder, calculateTax, calculateServiceCharge, applyCoupon } = require("../controllers/orderController");
 const { validateCoupon } = require("../controllers/couponController");
 const { createRazorpayOrder, verifyRazorpayPayment } = require("../controllers/paymentController");
-const { getPublicOrderTracking } = require("../controllers/deliveryController");
+const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
 const {
   getRestaurantCoordinates,
   computeDeliveryDistanceAndFee,
@@ -309,6 +309,7 @@ const getOrderEstimate = async (req, res) => {
 };
 
 router.post("/orders", validatePublicOrder, attachWebsiteUser, createOrder);
+router.get("/orders/recent", getPublicRecentOrders);
 router.get("/orders/:orderNumber/track", getPublicOrderTracking);
 router.post("/order-estimate", getOrderEstimate);
 router.get("/coupons/validate", validateCoupon);

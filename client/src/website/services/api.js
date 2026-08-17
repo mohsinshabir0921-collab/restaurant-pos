@@ -27,6 +27,7 @@ export const websiteAPI = {
   verifyRazorpayPayment: (data) => websiteApi.post("/public/payment/verify", data),
   trackOrder: (orderNumber, phone) =>
     websiteApi.get(`/public/orders/${orderNumber}/track`, { params: { phone } }),
+  getRecentOrders: (phone) => websiteApi.get("/public/orders/recent", { params: { phone } }),
 };
 
 export default websiteApi;

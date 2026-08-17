@@ -442,3 +442,81 @@
   flex-wrap: wrap;
   margin-top: 8px;
 }
+
+/* Phone-first lookup: loading / empty / recent orders list */
+.track-loading {
+  max-width: 480px;
+  margin: 24px auto 0;
+  text-align: center;
+  color: var(--ink-500);
+  font-size: 0.95rem;
+}
+
+.track-empty {
+  max-width: 480px;
+  margin: 24px auto 0;
+  text-align: center;
+  background: var(--cream-0);
+  border: 1px solid rgba(25, 25, 25, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 28px 20px;
+  color: var(--ink-500);
+}
+
+.track-empty p {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.track-empty p:last-child {
+  margin-bottom: 0;
+}
+
+.recent-orders-list {
+  list-style: none;
+  margin: 28px auto 0;
+  padding: 0;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.recent-order-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--cream-0);
+  border: 1px solid rgba(25, 25, 25, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+}
+
+.recent-order-card .btn {
+  align-self: flex-start;
+}
+
+.recent-order-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.recent-order-number {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.recent-order-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-500);
+  font-size: 0.9rem;
+}

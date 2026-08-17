@@ -266,6 +266,43 @@ const getOrderTracking = async (req, res) => {
   }
 };
 
+// GET /api/public/orders/recent?phone=...  (public)
+// Phone-first lookup for the public "Track Order" page. Returns only the
+// caller's recent orders - the phone number is matched server-side against the
+// order's stored customerPhone. A non-matching phone returns an empty list
+// (not a 404), so the endpoint does not reveal whether a number has ever
+// ordered. Only safe customer-facing fields are returned; address, email,
+// payment details and delivery-boy data are never included.
+const RECENT_ORDERS_LIMIT = 10;
+
+const getPublicRecentOrders = async (req, res) => {
+  try {
+    const phone = String(req.query.phone || "").trim();
+
+    if (!phone) {
+      return res.status(400).json({ success: false, message: "Phone number is required" });
+    }
+
+    const orders = await Order.find({ customerPhone: phone })
+      .sort({ createdAt: -1 })
+      .limit(RECENT_ORDERS_LIMIT)
+      .lean();
+
+    const safeOrders = orders.map((order) => ({
+      orderNumber: order.orderNumber,
+      orderType: order.orderType,
+      orderStatus: order.orderStatus,
+      total: order.total ?? 0,
+      createdAt: order.createdAt,
+    }));
+
+    return res.status(200).json({ success: true, orders: safeOrders });
+  } catch (error) {
+    console.log("PUBLIC RECENT ORDERS ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 // GET /api/public/orders/:orderNumber/track?phone=...  (public)
 // A customer can only track their own order: the order number and the phone
 // number recorded on the order must match. Returns only what is needed to
@@ -340,4 +377,5 @@ module.exports = {
   reportLocation,
   getOrderTracking,
   getPublicOrderTracking,
+  getPublicRecentOrders,
 };
