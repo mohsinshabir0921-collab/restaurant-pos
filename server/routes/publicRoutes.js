@@ -10,6 +10,11 @@ const User = require("../models/User");
 const { createOrder, calculateTax, calculateServiceCharge, applyCoupon } = require("../controllers/orderController");
 const { validateCoupon } = require("../controllers/couponController");
 const { createRazorpayOrder, verifyRazorpayPayment } = require("../controllers/paymentController");
+const {
+  getRestaurantCoordinates,
+  computeDeliveryDistanceAndFee,
+  computeDeliveryFeeForOrder,
+} = require("../utils/delivery");
 const { handleError } = require("../utils/httpError");
 
 // ---------------------------------------------------------------------------
@@ -134,16 +139,6 @@ const validateAndBuildItems = async (items) => {
   });
 };
 
-// Progressive website delivery pricing:
-//   First 5 km: ₹10/km, then ₹15/km beyond (progressive).
-//   3 km = 30, 5 km = 50, 6 km = 65, 8 km = 95, 10 km = 125.
-const calculateDeliveryFee = (distanceKm) => {
-  const km = Number(distanceKm);
-  if (!Number.isFinite(km) || km <= 0) return 0;
-  const fee = Math.min(km, 5) * 10 + Math.max(0, km - 5) * 15;
-  return Math.round(fee);
-};
-
 // Sanitizes and locks down an incoming website order before delegating to the
 // shared createOrder controller.
 const validatePublicOrder = async (req, res, next) => {
@@ -172,10 +167,10 @@ const validatePublicOrder = async (req, res, next) => {
     const cleanItems = await validateAndBuildItems(req.body.items);
 
     let deliveryFee = 0;
+    let deliveryDistanceKm = 0;
     if (orderType === "delivery") {
-      const address = req.body.deliveryAddress;
+      const address = req.body.deliveryAddress || {};
       if (
-        !address ||
         !String(address.line1 || "").trim() ||
         !String(address.city || "").trim() ||
         !String(address.state || "").trim()
@@ -191,14 +186,25 @@ const validatePublicOrder = async (req, res, next) => {
           message: "Phone number is required for delivery",
         });
       }
-      const distanceKm = Number(address.distanceKm);
-      if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Delivery distance (km) is required",
-        });
-      }
-      deliveryFee = calculateDeliveryFee(distanceKm);
+      // The distance and delivery fee are always computed server-side from the
+      // customer's coordinates and the restaurant's configured location. Any
+      // client-supplied distanceKm / deliveryFee is ignored.
+      const delivery = await computeDeliveryFeeForOrder({
+        latitude: address.latitude,
+        longitude: address.longitude,
+      });
+      deliveryFee = delivery.deliveryFee;
+      deliveryDistanceKm = delivery.distanceKm;
+      req.body.deliveryAddress = {
+        line1: String(address.line1).trim(),
+        line2: String(address.line2 || "").trim() || undefined,
+        city: String(address.city).trim(),
+        state: String(address.state).trim(),
+        pincode: String(address.pincode || "").trim() || undefined,
+        latitude: Number(address.latitude),
+        longitude: Number(address.longitude),
+        distanceKm: deliveryDistanceKm,
+      };
     }
 
     // Overwrite anything the client should not control.
@@ -207,6 +213,7 @@ const validatePublicOrder = async (req, res, next) => {
     req.body.orderType = orderType;
     req.body.paymentMethod = paymentMethod;
     req.body.deliveryFee = deliveryFee;
+    req.body.deliveryDistanceKm = deliveryDistanceKm;
     req.body.tableId = null;
     req.body.tableNo = null;
     req.body.loyaltyPointsUsed = 0;
@@ -253,10 +260,21 @@ const getOrderEstimate = async (req, res) => {
     let deliveryFee = 0;
     let deliveryDistanceKm = 0;
     if (orderType === "delivery") {
-      const distanceKm = Number(deliveryAddress?.distanceKm);
-      if (Number.isFinite(distanceKm) && distanceKm > 0) {
-        deliveryDistanceKm = distanceKm;
-        deliveryFee = calculateDeliveryFee(distanceKm);
+      const lat = Number(deliveryAddress?.latitude);
+      const lng = Number(deliveryAddress?.longitude);
+      const restaurant = await getRestaurantCoordinates();
+      if (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180 &&
+        restaurant
+      ) {
+        const delivery = computeDeliveryDistanceAndFee(lat, lng, restaurant);
+        deliveryDistanceKm = delivery.distanceKm;
+        deliveryFee = delivery.deliveryFee;
       }
     }
 

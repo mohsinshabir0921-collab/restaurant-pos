@@ -3197,6 +3197,18 @@
   outline: none;
 }
 
+.setting-coordinate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.setting-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
 .auth-page {
   min-height: 100vh;
   display: flex;

@@ -18,6 +18,18 @@ const SETTING_GROUPS = [
   { key: "general", label: "General", icon: <IconSettings size={17} /> },
 ];
 
+// Restaurant coordinates are rendered as decimal number inputs with valid
+// lat/lng ranges. Values are never hardcoded here — they come from and persist
+// through the existing settings API.
+const COORDINATE_FIELDS = {
+  restaurant_latitude: { label: "Restaurant Latitude", min: -90, max: 90 },
+  restaurant_longitude: { label: "Restaurant Longitude", min: -180, max: 180 },
+};
+
+const getLabel = (key) =>
+  COORDINATE_FIELDS[key]?.label ||
+  key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
@@ -80,6 +92,7 @@ export default function SettingsPage() {
   };
 
   const getInputType = (key, value) => {
+    if (COORDINATE_FIELDS[key]) return "coordinate";
     if (typeof value === "boolean") return "checkbox";
     if (typeof value === "number") return "number";
     if (key.includes("email")) return "email";
@@ -133,7 +146,7 @@ export default function SettingsPage() {
               const inputType = getInputType(key, groupSettings[key]);
               return (
                 <div key={key} className="setting-field">
-                  <label>{key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}</label>
+                  <label>{getLabel(key)}</label>
                   {inputType === "checkbox" ? (
                     <label className="toggle-switch">
                       <input
@@ -143,6 +156,18 @@ export default function SettingsPage() {
                       />
                       <span className="slider"></span>
                     </label>
+                  ) : inputType === "coordinate" ? (
+                    <div className="setting-coordinate">
+                      <input
+                        type="number"
+                        step="any"
+                        min={COORDINATE_FIELDS[key].min}
+                        max={COORDINATE_FIELDS[key].max}
+                        value={value}
+                        onChange={e => handleChange(key, e.target.value)}
+                      />
+                      <span className="setting-hint">Used to calculate the delivery distance</span>
+                    </div>
                   ) : inputType === "number" ? (
                     <input
                       type="number"

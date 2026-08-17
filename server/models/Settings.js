@@ -32,6 +32,8 @@ const settingsSchema = new mongoose.Schema(
 const defaultSettings = [
   { key: "restaurant_name", value: "Khyenn Chyenn", description: "Restaurant name", group: "restaurant", isPublic: true },
   { key: "restaurant_address", value: "", description: "Restaurant address", group: "restaurant", isPublic: true },
+  { key: "restaurant_latitude", value: "", description: "Restaurant latitude for delivery distance calculation", group: "restaurant" },
+  { key: "restaurant_longitude", value: "", description: "Restaurant longitude for delivery distance calculation", group: "restaurant" },
   { key: "restaurant_phone", value: "", description: "Restaurant phone", group: "restaurant", isPublic: true },
   { key: "restaurant_email", value: "", description: "Restaurant email", group: "restaurant", isPublic: true },
   { key: "restaurant_tagline", value: "Experience the finest flavors crafted with passion", description: "Website hero tagline", group: "restaurant", isPublic: true },
