@@ -183,6 +183,7 @@ export default function StaffPage() {
                     <option value="admin">Admin</option>
                     <option value="cashier">Cashier</option>
                     <option value="kitchen">Kitchen</option>
+                    <option value="delivery">Delivery</option>
                   </select>
                 </div>
                 <div className="form-group">

@@ -25,6 +25,8 @@ export const websiteAPI = {
   createOrder: (data) => websiteApi.post("/public/orders", data),
   createRazorpayOrder: (orderId) => websiteApi.post("/public/payment/create-order", { orderId }),
   verifyRazorpayPayment: (data) => websiteApi.post("/public/payment/verify", data),
+  trackOrder: (orderNumber, phone) =>
+    websiteApi.get(`/public/orders/${orderNumber}/track`, { params: { phone } }),
 };
 
 export default websiteApi;

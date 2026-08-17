@@ -272,3 +272,173 @@
     transition: none !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Order tracking page
+   -------------------------------------------------------------------------- */
+.track-page {
+  padding: clamp(32px, 6vw, 72px) 0;
+  min-height: 70vh;
+}
+
+.track-page .container {
+  max-width: 860px;
+}
+
+.track-hero {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.track-hero h1 {
+  font-size: clamp(1.9rem, 4.5vw, 2.6rem);
+  letter-spacing: -0.03em;
+  margin-bottom: 10px;
+}
+
+.track-hero p {
+  color: var(--ink-500);
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.track-form {
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--cream-0);
+  border: 1px solid rgba(25, 25, 25, 0.06);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: clamp(28px, 5vw, 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.track-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.track-field label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.track-field input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(25, 25, 25, 0.12);
+  border-radius: var(--radius-md);
+  background: #fff;
+  font-size: 1rem;
+  color: var(--ink-900);
+}
+
+.track-field input:focus {
+  outline: none;
+  border-color: var(--green-600);
+  box-shadow: 0 0 0 3px rgba(31, 138, 76, 0.12);
+}
+
+.track-error {
+  margin: 0;
+  color: var(--red-600);
+  font-size: 0.92rem;
+}
+
+.track-live {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.track-live-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--cream-0);
+  border: 1px solid rgba(25, 25, 25, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 22px;
+}
+
+.track-order-badge,
+.track-status-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.track-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.track-order-number {
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.track-status {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ink-900);
+}
+
+.track-status.out_for_delivery {
+  color: var(--green-600);
+}
+
+.track-status.delivered {
+  color: var(--green-600);
+}
+
+.track-status.cancelled {
+  color: var(--red-600);
+}
+
+.track-map-wrap {
+  margin: 0;
+}
+
+.track-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  background: var(--cream-0);
+  border: 1px solid rgba(25, 25, 25, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 22px;
+}
+
+.track-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.track-value {
+  font-size: 0.95rem;
+  color: var(--ink-900);
+  overflow-wrap: break-word;
+}
+
+.track-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}

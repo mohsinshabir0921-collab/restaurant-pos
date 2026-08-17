@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "rea
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { menuAPI, orderAPI, tableAPI, customerAPI, settingsAPI, paymentAPI, couponAPI, loyaltyAPI, categoryAPI } from "../services/api";
+import { menuAPI, orderAPI, tableAPI, customerAPI, settingsAPI, paymentAPI, couponAPI, loyaltyAPI, categoryAPI, authAPI } from "../services/api";
 import {
   IconPOS,
   IconKitchen,
@@ -214,6 +214,11 @@ export default function POSPage() {
   const notificationAudioRef = useRef(null);
   const razorpayLoadedRef = useRef(false);
 
+  const [deliveryStaff, setDeliveryStaff] = useState([]);
+  const [assignOrder, setAssignOrder] = useState(null);
+  const [assignSelection, setAssignSelection] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
   useEffect(() => {
     notificationAudioRef.current = new Audio("/notification.mp3");
   }, []);
@@ -390,6 +395,17 @@ export default function POSPage() {
     }
   };
 
+  const fetchDeliveryStaff = async () => {
+    try {
+      const res = await authAPI.getStaff({ role: "delivery", limit: 100 });
+      if (res.data.success) {
+        setDeliveryStaff(res.data.staff);
+      }
+    } catch (err) {
+      console.error("Failed to load delivery staff");
+    }
+  };
+
   const fetchPosSettings = async () => {
     try {
       const res = await settingsAPI.getAll();
@@ -418,6 +434,7 @@ export default function POSPage() {
     fetchPosSettings();
     fetchLoyaltyConfig();
     fetchOrders(true);
+    fetchDeliveryStaff();
     if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
   }, []);
 
@@ -733,6 +750,42 @@ export default function POSPage() {
     }
   };
 
+  const handleAssignDelivery = async (orderId, deliveryBoyId) => {
+    setAssigning(true);
+    setError("");
+    try {
+      const res = await orderAPI.assignDelivery(orderId, deliveryBoyId);
+      if (res.data.success) {
+        const assigned = res.data.order?.assignedTo || null;
+        setOrders((prev) =>
+          prev.map((o) => (o._id === orderId ? { ...o, assignedTo: assigned || deliveryBoyId } : o))
+        );
+        setAssignOrder(null);
+        setAssignSelection("");
+        fetchOrders(false);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to assign delivery person");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const deliveryStaffMap = useMemo(() => {
+    const map = {};
+    deliveryStaff.forEach((member) => { map[member._id] = member.name; });
+    return map;
+  }, [deliveryStaff]);
+
+  const availableDeliveryStaff = deliveryStaff.filter((member) => member.isActive !== false);
+
+  const getAssignedName = (order) => {
+    const assigned = order.assignedTo;
+    if (!assigned) return "-";
+    if (typeof assigned === "object" && assigned.name) return assigned.name;
+    return deliveryStaffMap[String(assigned)] || "-";
+  };
+
   const handleTableSelect = (table) => {
     if (table.status === "occupied" && table.currentOrder) {
       const order = orders.find(o => o._id === table.currentOrder);
@@ -759,6 +812,20 @@ export default function POSPage() {
     }
     if (order.orderStatus === "ready") {
       actions.push(<button key="served" className="btn btn-sm btn-teal" onClick={() => handleStatusChange(order._id, "served")}>Mark Served</button>);
+    }
+    if (order.orderStatus === "ready" && order.orderType === "delivery" && isAdminOrCashier) {
+      actions.push(
+        <button
+          key="assign"
+          className="btn btn-sm btn-primary"
+          onClick={() => {
+            setAssignSelection("");
+            setAssignOrder(order);
+          }}
+        >
+          Assign Delivery
+        </button>
+      );
     }
     if (order.orderStatus === "served") {
       actions.push(<button key="paid" className="btn btn-sm btn-info" onClick={() => handleStatusChange(order._id, "paid")}>Mark Paid</button>);
@@ -1307,6 +1374,7 @@ export default function POSPage() {
                   <th>Payment</th>
                   <th>Total</th>
                   <th>Time</th>
+                  <th>Assigned</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -1327,11 +1395,12 @@ export default function POSPage() {
                       <td>{order.paymentMethod}</td>
                       <td>{formatCurrency(order.total)}</td>
                       <td>{new Date(order.createdAt).toLocaleString()}</td>
+                      <td><span className="assigned-name">{getAssignedName(order)}</span></td>
                       <td onClick={(e) => e.stopPropagation()}>{renderOrderActions(order)}</td>
                     </tr>
                     {expandedOrderId === order._id && (
                       <tr className="order-details-row">
-                        <td colSpan={9}>
+                        <td colSpan={10}>
                           <div className="order-details-content">
                             {order.customerPhone && (
                               <div className="order-note">
@@ -1375,6 +1444,53 @@ export default function POSPage() {
               <h3 className="empty-state-title">Quick Reports</h3>
               <p className="empty-state-description">Detailed sales, payment and order reports are available on the Reports page.</p>
               <a href="/reports" className="btn btn-primary">Open Reports</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assignOrder && (
+        <div className="modal-overlay" onClick={() => setAssignOrder(null)}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Assign Delivery</h3>
+              <button className="modal-close" onClick={() => setAssignOrder(null)} aria-label="Close assign dialog">×</button>
+            </div>
+            <div className="modal-body">
+              <p className="form-hint">Order #{assignOrder.orderNumber} — choose a delivery person.</p>
+              {availableDeliveryStaff.length === 0 ? (
+                <p className="form-hint">
+                  No active delivery staff found. Create a user with the "Delivery" role on the Staff page first.
+                </p>
+              ) : (
+                <div className="form-group">
+                  <label htmlFor="assign-delivery-select">Delivery person</label>
+                  <select
+                    id="assign-delivery-select"
+                    className="form-select"
+                    value={assignSelection}
+                    onChange={(e) => setAssignSelection(e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {availableDeliveryStaff.map((member) => (
+                      <option key={member._id} value={member._id}>
+                        {member.name}
+                        {member.email ? ` (${member.email})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setAssignOrder(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!assignSelection || assigning}
+                onClick={() => handleAssignDelivery(assignOrder._id, assignSelection)}
+              >
+                {assigning ? "Assigning…" : "Assign"}
+              </button>
             </div>
           </div>
         </div>

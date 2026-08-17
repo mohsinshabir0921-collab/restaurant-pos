@@ -40,6 +40,7 @@ const NAV_GROUPS = [
       { name: "Dashboard", href: "/dashboard", icon: IconDashboard, roles: ["admin"] },
       { name: "Kitchen", href: "/kitchen", icon: IconKitchen, roles: ["admin", "kitchen"] },
       { name: "Delivery", href: "/delivery", icon: IconDelivery, roles: ["delivery"] },
+      { name: "Tracking", href: "/tracking", icon: IconDelivery, roles: ["admin", "cashier"] },
       { name: "Reports", href: "/reports", icon: IconReports, roles: ["admin"] },
     ],
   },

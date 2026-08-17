@@ -1565,6 +1565,7 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
 .role-badge.manager { background: var(--color-secondary-light); color: var(--color-secondary); }
 .role-badge.cashier { background: var(--color-primary-light); color: var(--color-primary); }
 .role-badge.kitchen { background: var(--color-warning-light); color: var(--color-warning); }
+.role-badge.delivery { background: var(--color-success-light); color: var(--color-success); }
 .role-badge.waiter { background: var(--color-info-light); color: var(--color-info); }
 .role-badge.staff { background: var(--color-bg-hover); color: var(--color-text-secondary); }
 

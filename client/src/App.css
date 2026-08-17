@@ -3519,3 +3519,79 @@
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
+
+/* ============================================================
+   Delivery tracking page
+   ============================================================ */
+.tracking-refresh-note {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-right: var(--space-2);
+}
+
+.tracking-error {
+  margin-bottom: var(--space-4);
+}
+
+.tracking-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.tracking-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tracking-card.terminal {
+  opacity: 0.75;
+}
+
+.tracking-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tracking-card-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.tracking-order-number {
+  font-weight: 700;
+  font-size: var(--text-base);
+}
+
+.tracking-boy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+}
+
+.tracking-card-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.tracking-card-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.assigned-name {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}

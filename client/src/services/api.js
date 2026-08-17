@@ -193,6 +193,7 @@ export const orderAPI = {
   getById: (id) => api.get(`/orders/${id}`),
   getKitchenOrders: () => api.get("/orders/kitchen"),
   updateStatus: (id, orderStatus) => api.patch(`/orders/${id}/status`, { orderStatus }),
+  assignDelivery: (id, deliveryBoyId) => api.post(`/orders/${id}/assign`, { deliveryBoyId }),
   updateItemStatus: (id, itemIndex, kitchenStatus) => api.patch(`/orders/${id}/items/${itemIndex}/kitchen-status`, { kitchenStatus }),
   update: (id, data) => api.put(`/orders/${id}`, data),
   addItems: (id, items) => api.post(`/orders/${id}/items`, { items }),

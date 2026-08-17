@@ -184,6 +184,11 @@ export default function OrderConfirmationPage() {
           </div>
 
           <div className="confirmation-actions">
+            {order.orderType === "delivery" && (
+              <Link to={`/track/${order.orderNumber}`} className="btn btn-outline btn-lg">
+                Track delivery
+              </Link>
+            )}
             <Link to="/menu" className="btn btn-primary btn-lg">
               Order Again
             </Link>

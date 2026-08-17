@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { orderAPI, deliveryAPI } from "../services/api";
+import DeliveryMap from "../components/DeliveryMap";
 
 const GPS_POST_INTERVAL_MS = 6000;
 const ORDERS_REFRESH_MS = 15000;
@@ -283,6 +284,28 @@ export default function DeliveryPage() {
               <span className="meta-value">{formatAddress(activeOrder.deliveryAddress)}</span>
             </div>
           </div>
+          <DeliveryMap
+            destination={{
+              latitude: activeOrder.deliveryAddress?.latitude,
+              longitude: activeOrder.deliveryAddress?.longitude,
+              label: formatAddress(activeOrder.deliveryAddress),
+            }}
+            positions={
+              latestPosition
+                ? [
+                    {
+                      id: "boy",
+                      kind: "boy",
+                      lat: latestPosition.lat,
+                      lng: latestPosition.lng,
+                      label: "Your current location",
+                    },
+                  ]
+                : []
+            }
+            height={320}
+            fallback="No GPS position available yet."
+          />
           <div className="delivery-active-actions">
             <button
               className="btn btn-success"

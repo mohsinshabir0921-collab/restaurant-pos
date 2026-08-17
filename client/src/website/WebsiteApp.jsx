@@ -9,6 +9,7 @@ import MenuItemDetailPage from "./pages/MenuItemDetailPage";
 import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import OrderConfirmationPage from "./pages/OrderConfirmationPage";
+import TrackOrderPage from "./pages/TrackOrderPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 export default function WebsiteApp() {
@@ -24,6 +25,7 @@ export default function WebsiteApp() {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
               <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
+              <Route path="/track/:orderNumber" element={<TrackOrderPage />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>

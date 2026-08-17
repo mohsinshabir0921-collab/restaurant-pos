@@ -23,7 +23,7 @@ router.post("/refresh", refreshToken);
 router.post("/logout", protect, logoutUser);
 router.get("/me", protect, getMe);
 
-router.get("/staff", protect, authorizeRoles("admin"), getAllStaff);
+router.get("/staff", protect, authorizeRoles("admin", "cashier"), getAllStaff);
 router.get("/staff/:id", protect, authorizeRoles("admin"), getStaffById);
 router.put("/staff/:id", protect, authorizeRoles("admin"), updateStaff);
 router.patch("/staff/:id/password", protect, authorizeRoles("admin"), changePassword);
