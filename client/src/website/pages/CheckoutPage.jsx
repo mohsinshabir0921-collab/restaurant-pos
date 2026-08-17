@@ -51,7 +51,6 @@ export default function CheckoutPage() {
     state: "",
     pincode: "",
   });
-
   // Detected customer coordinates (browser geolocation). Sent to the server,
   // which calculates the delivery distance and fee from these coordinates.
   const [customerLocation, setCustomerLocation] = useState(null);
@@ -136,7 +135,6 @@ export default function CheckoutPage() {
     );
   };
 
-  const deliveryState = deliveryAddress.state?.trim();
   const estimateEnabled = !isEmpty;
 
   const estimatePayloadDelivery = useMemo(
@@ -144,13 +142,12 @@ export default function CheckoutPage() {
       effectiveOrderType === "delivery"
         ? {
             ...deliveryAddress,
-            state: deliveryState,
             ...(customerLocation
               ? { latitude: customerLocation.latitude, longitude: customerLocation.longitude }
               : {}),
           }
         : undefined,
-    [effectiveOrderType, deliveryAddress, deliveryState, customerLocation]
+    [effectiveOrderType, deliveryAddress, customerLocation]
   );
 
   const { estimate, loading: estimateLoading, error: estimateError } = useEstimate({
@@ -218,11 +215,10 @@ export default function CheckoutPage() {
     }
 
     if (effectiveOrderType === "delivery") {
-      if (!deliveryAddress.line1.trim()) return "Please enter your street address";
-      if (!deliveryAddress.city.trim()) return "Please enter your city";
-      if (!deliveryState) return "Please enter your state";
       if (!customerLocation)
         return "Please use 'Use my current location' so we can calculate your delivery distance and fee";
+      if (!deliveryAddress.line1.trim())
+        return "Please enter your house / flat / shop number for delivery";
     }
 
     if (!paymentMethod) return "Please choose a payment method";
@@ -251,8 +247,8 @@ export default function CheckoutPage() {
           ? {
               line1: deliveryAddress.line1.trim(),
               line2: deliveryAddress.line2.trim() || undefined,
-              city: deliveryAddress.city.trim(),
-              state: deliveryAddress.state.trim(),
+              city: deliveryAddress.city.trim() || undefined,
+              state: deliveryAddress.state.trim() || undefined,
               pincode: deliveryAddress.pincode.trim() || undefined,
               latitude: customerLocation.latitude,
               longitude: customerLocation.longitude,
@@ -451,65 +447,7 @@ export default function CheckoutPage() {
                 </h2>
                 <div className="form-grid">
                   <div className="form-field span-2">
-                    <label htmlFor="addr-line1">Street Address *</label>
-                    <input
-                      id="addr-line1"
-                      type="text"
-                      value={deliveryAddress.line1}
-                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, line1: e.target.value }))}
-                      placeholder="House no, street, area"
-                      autoComplete="address-line1"
-                      required
-                    />
-                  </div>
-                  <div className="form-field span-2">
-                    <label htmlFor="addr-line2">Apartment / Landmark (optional)</label>
-                    <input
-                      id="addr-line2"
-                      type="text"
-                      value={deliveryAddress.line2}
-                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, line2: e.target.value }))}
-                      placeholder="Flat, building, landmark"
-                      autoComplete="address-line2"
-                    />
-                  </div>
-                  <div className="form-field">
-                    <label htmlFor="addr-city">City *</label>
-                    <input
-                      id="addr-city"
-                      type="text"
-                      value={deliveryAddress.city}
-                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, city: e.target.value }))}
-                      autoComplete="address-level2"
-                      required
-                    />
-                  </div>
-                  <div className="form-field">
-                    <label htmlFor="addr-state">State *</label>
-                    <input
-                      id="addr-state"
-                      type="text"
-                      value={deliveryAddress.state}
-                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, state: e.target.value }))}
-                      placeholder="e.g. Delhi"
-                      autoComplete="address-level1"
-                      required
-                    />
-                  </div>
-                  <div className="form-field span-2">
-                    <label htmlFor="addr-pincode">PIN Code (optional)</label>
-                    <input
-                      id="addr-pincode"
-                      type="text"
-                      inputMode="numeric"
-                      value={deliveryAddress.pincode}
-                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, pincode: e.target.value }))}
-                      placeholder="e.g. 110001"
-                      autoComplete="postal-code"
-                    />
-                  </div>
-                  <div className="form-field span-2">
-                    <label htmlFor="addr-distance">Delivery Location *</label>
+                    <label htmlFor="addr-location">Delivery Location *</label>
                     <div className="location-detect">
                       <button
                         type="button"
@@ -532,6 +470,34 @@ export default function CheckoutPage() {
                       )}
                     </div>
                     {locationError && <p className="field-error">{locationError}</p>}
+                    {customerLocation && !locating && (
+                      <p className="field-hint">
+                        Location detected. Your exact coordinates are used to calculate the delivery distance and fee.
+                      </p>
+                    )}
+                  </div>
+                  <div className="form-field span-2">
+                    <label htmlFor="addr-line1">House / Flat / Shop Number *</label>
+                    <input
+                      id="addr-line1"
+                      type="text"
+                      value={deliveryAddress.line1}
+                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, line1: e.target.value }))}
+                      placeholder="e.g. 12B, Rose Villa"
+                      autoComplete="address-line1"
+                      required
+                    />
+                  </div>
+                  <div className="form-field span-2">
+                    <label htmlFor="addr-line2">Landmark / Delivery Instructions (optional)</label>
+                    <input
+                      id="addr-line2"
+                      type="text"
+                      value={deliveryAddress.line2}
+                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, line2: e.target.value }))}
+                      placeholder="e.g. Near City Mall, ring the bell"
+                      autoComplete="address-line2"
+                    />
                   </div>
                 </div>
                 <p className="field-hint">

@@ -171,7 +171,9 @@ export default function OrderConfirmationPage() {
                     <span className="detail-label">Delivery Address</span>
                     <span className="detail-value">
                       {address.line1}
-                      {address.line2 ? `, ${address.line2}` : ""}, {address.city}, {address.state}
+                      {address.line2 ? `, ${address.line2}` : ""}
+                      {address.city ? `, ${address.city}` : ""}
+                      {address.state ? `, ${address.state}` : ""}
                       {address.pincode ? ` — ${address.pincode}` : ""}
                     </span>
                   </li>

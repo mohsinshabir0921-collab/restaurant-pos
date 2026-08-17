@@ -234,6 +234,62 @@ test("delivery order without customer location is rejected", async () => {
   assert.equal(res._status, 400);
 });
 
+test("delivery order succeeds with house number and coordinates, city/state optional", async () => {
+  const d = freshLoad();
+  const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
+  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
+  const itemId = seedMenu(d.store);
+
+  const req = makeReq({
+    orderType: "delivery",
+    paymentMethod: "cod",
+    customerPhone: "9876543210",
+    items: [{ menuItemId: String(itemId), qty: 1 }],
+    deliveryAddress: {
+      line1: "12B, Rose Villa",
+      latitude: CUSTOMER.latitude,
+      longitude: CUSTOMER.longitude,
+    },
+  });
+  const res = makeRes();
+  let nexted = false;
+  await validatePublicOrder(req, res, () => {
+    nexted = true;
+  });
+
+  assert.equal(nexted, true, "order passes with only a house number and coordinates");
+  assert.equal(req.body.deliveryFee, 39, "server-calculated fee is applied");
+  assert.equal(req.body.deliveryAddress.distanceKm, 3.9);
+  assert.equal(req.body.deliveryAddress.line1, "12B, Rose Villa");
+  assert.equal(req.body.deliveryAddress.city, undefined);
+  assert.equal(req.body.deliveryAddress.state, undefined);
+});
+
+test("delivery order without a house number is rejected with a clear message", async () => {
+  const d = freshLoad();
+  const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
+  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
+  const itemId = seedMenu(d.store);
+
+  const req = makeReq({
+    orderType: "delivery",
+    paymentMethod: "cod",
+    customerPhone: "9876543210",
+    items: [{ menuItemId: String(itemId), qty: 1 }],
+    deliveryAddress: {
+      line1: "   ",
+      city: "Delhi",
+      state: "Delhi",
+      latitude: CUSTOMER.latitude,
+      longitude: CUSTOMER.longitude,
+    },
+  });
+  const res = makeRes();
+  await validatePublicOrder(req, res, () => {});
+  assert.equal(res._status, 400);
+  assert.match(res._body.message, /house, flat, or shop number/);
+});
+
 test("delivery order is rejected when the restaurant has no configured location", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");

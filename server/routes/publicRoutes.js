@@ -170,14 +170,14 @@ const validatePublicOrder = async (req, res, next) => {
     let deliveryDistanceKm = 0;
     if (orderType === "delivery") {
       const address = req.body.deliveryAddress || {};
-      if (
-        !String(address.line1 || "").trim() ||
-        !String(address.city || "").trim() ||
-        !String(address.state || "").trim()
-      ) {
+      // The customer's coordinates are the authoritative delivery location.
+      // Only a house/flat/shop number is required as a human-readable drop
+      // point; city/state/pincode are optional because they cannot be derived
+      // without a geocoder and must never block an order.
+      if (!String(address.line1 || "").trim()) {
         return res.status(400).json({
           success: false,
-          message: "A complete delivery address is required",
+          message: "A house, flat, or shop number is required for delivery",
         });
       }
       if (!String(req.body.customerPhone || "").trim()) {
@@ -198,8 +198,8 @@ const validatePublicOrder = async (req, res, next) => {
       req.body.deliveryAddress = {
         line1: String(address.line1).trim(),
         line2: String(address.line2 || "").trim() || undefined,
-        city: String(address.city).trim(),
-        state: String(address.state).trim(),
+        city: String(address.city || "").trim() || undefined,
+        state: String(address.state || "").trim() || undefined,
         pincode: String(address.pincode || "").trim() || undefined,
         latitude: Number(address.latitude),
         longitude: Number(address.longitude),
