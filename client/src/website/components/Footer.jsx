@@ -21,16 +21,34 @@ const formatTime = (time) => {
   return `${displayHour}:${minutes || "00"} ${suffix}`;
 };
 
+const getExternalHttpUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+  } catch {
+    return null;
+  }
+  return null;
+};
+
+const toDigits = (value) => String(value || "").trim().replace(/\D/g, "");
+
 export default function Footer({ restaurantName }) {
   const { settings, openingHours } = useWebsite();
   const phone = settings.restaurant_phone || "";
   const address = settings.restaurant_address || "";
   const email = settings.restaurant_email || "";
+  const whatsappDigits = toDigits(settings.whatsapp_number);
+  const instagramUrl = getExternalHttpUrl(settings.instagram_url);
+  const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null;
+  const emailUrl = email ? `mailto:${email}` : null;
 
   const socials = [
-    { name: "Instagram", url: settings.instagram_url, icon: "instagram" },
-    { name: "Facebook", url: settings.facebook_url, icon: "facebook" },
-    { name: "Twitter", url: settings.twitter_url, icon: "twitter" },
+    { name: "Instagram", url: instagramUrl, icon: "instagram" },
+    { name: "WhatsApp", url: whatsappUrl, icon: "whatsapp" },
+    { name: "Email", url: emailUrl, icon: "email" },
   ].filter((s) => s.url);
 
   return (
@@ -60,8 +78,7 @@ export default function Footer({ restaurantName }) {
                     href={s.url}
                     className="social-link"
                     aria-label={s.name}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    {...(s.icon === "email" ? {} : { target: "_blank", rel: "noopener noreferrer" })}
                   >
                     {s.icon === "instagram" ? (
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -69,13 +86,15 @@ export default function Footer({ restaurantName }) {
                         <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
                         <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
                       </svg>
-                    ) : s.icon === "facebook" ? (
+                    ) : s.icon === "whatsapp" ? (
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        <path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1zm5 0a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1z" />
                       </svg>
                     ) : (
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z" />
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
                       </svg>
                     )}
                   </a>
@@ -113,15 +132,6 @@ export default function Footer({ restaurantName }) {
                     <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                   </svg>
                   <a href={`tel:${phone.replace(/\s+/g, "")}`}>{phone}</a>
-                </p>
-              )}
-              {email && (
-                <p className="footer-contact-row">
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <rect x="2" y="4" width="20" height="16" rx="2" />
-                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                  </svg>
-                  <a href={`mailto:${email}`}>{email}</a>
                 </p>
               )}
             </address>
