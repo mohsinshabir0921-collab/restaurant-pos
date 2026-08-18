@@ -59,7 +59,7 @@ const defaultSettings = [
   { key: "instagram_url", value: "", description: "Instagram URL", group: "restaurant", isPublic: true },
   { key: "facebook_url", value: "", description: "Facebook URL", group: "restaurant", isPublic: true },
   { key: "twitter_url", value: "", description: "Twitter/X URL", group: "restaurant", isPublic: true },
-  { key: "whatsapp_number", value: "", description: "WhatsApp number for contact (with country code)", group: "restaurant" },
+  { key: "whatsapp_number", value: "", description: "WhatsApp number for contact (with country code)", group: "restaurant", isPublic: true },
   { key: "gstin", value: "", description: "GSTIN number", group: "tax", isPublic: true },
   { key: "currency", value: "INR", description: "Currency code", group: "general", isPublic: true },
   { key: "tax_inclusive", value: false, description: "Prices include tax", group: "tax" },
@@ -81,10 +81,10 @@ const defaultSettings = [
 
 settingsSchema.statics.initializeDefaults = async function () {
   for (const setting of defaultSettings) {
-    const { group, ...rest } = setting;
+    const { group, isPublic, ...rest } = setting;
     await this.findOneAndUpdate(
       { key: setting.key },
-      { $setOnInsert: rest, $set: { group } },
+      { $setOnInsert: rest, $set: { group, isPublic: isPublic ?? false } },
       { upsert: true, new: true }
     );
   }
