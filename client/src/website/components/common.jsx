@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export const formatPrice = (value) => {
   const num = Number(value || 0);
   return new Intl.NumberFormat("en-IN", {
@@ -128,9 +130,20 @@ export function isSignatureDish(item = {}) {
 export function DishVisual({ item, category = "", size = "md", signature = false }) {
   const accent = dishAccent(category || item.category);
   const initial = dishInitial(item?.name);
-  const cls = `dish-visual dish-visual--${accent} dish-visual--${size} ${signature ? "dish-visual--sig" : ""}`;
+  const [imgFailed, setImgFailed] = useState(false);
+  const image = item?.image && !imgFailed ? item.image : null;
+  const cls = `dish-visual dish-visual--${accent} dish-visual--${size} ${signature ? "dish-visual--sig" : ""} ${image ? "dish-visual--img" : ""}`;
   return (
-    <div className={cls} data-accent={accent} aria-hidden="true">
+    <div className={cls} data-accent={accent} aria-hidden={image ? undefined : "true"}>
+      {image && (
+        <img
+          className="dish-visual__img"
+          src={image}
+          alt={item?.name || ""}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+        />
+      )}
       <svg className="dish-visual__pattern" viewBox="0 0 160 160" preserveAspectRatio="xMidYMid slice">
         <circle cx="80" cy="80" r="78" fill="none" stroke="currentColor" strokeOpacity="0.06" strokeWidth="1" />
         <circle cx="80" cy="80" r="58" fill="none" stroke="currentColor" strokeOpacity="0.08" strokeWidth="1" strokeDasharray="2 6" />

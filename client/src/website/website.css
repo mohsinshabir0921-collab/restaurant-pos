@@ -1281,6 +1281,21 @@ ol {
   border-color: color-mix(in srgb, var(--accent) 62%, transparent);
 }
 
+.dish-visual__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 2;
+}
+
+.dish-visual--img .dish-visual__pattern,
+.dish-visual--img .dish-visual__ring,
+.dish-visual--img .dish-visual__initial {
+  visibility: hidden;
+}
+
 .dish-visual__initial {
   position: relative;
   z-index: 1;

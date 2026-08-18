@@ -30,7 +30,7 @@ export default function CartContent({ onCheckout }) {
         {cartItems.map((item) => (
           <li key={item.id} className="cart-item" role="listitem">
             <div className="cart-item-media">
-              <ItemImage item={item} className="cart-item-img" alt="" />
+              <ItemImage item={item} className="cart-item-img" alt={item.name || ""} />
               <span className="cart-item-veg">
                 <VegMark isVeg={item.isVeg} />
               </span>

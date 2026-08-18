@@ -2,6 +2,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const Category = require("./models/Category");
 const MenuItem = require("./models/MenuItem");
+const { imagePathForName } = require("./menuImages");
 
 const categories = [
   { name: "Starters & Snacks", displayOrder: 1, description: "Appetizers and light bites", isActive: true },
@@ -222,6 +223,7 @@ async function seedData() {
       ...item,
       category: categoryMap[item.category],
       displayOrder: 0,
+      image: imagePathForName(item.name),
     }));
 
     const createdItems = await MenuItem.insertMany(menuItemsWithCategory);
