@@ -18,6 +18,7 @@ import {
   IconRestaurant,
   IconBag,
   IconDelivery,
+  IconBell,
 } from "../components/icons";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
@@ -31,6 +32,9 @@ const formatAddress = (addr) => {
 };
 
 const ORDER_TYPE_LABELS = { dinein: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" };
+
+const SEEN_ORDERS_KEY = "pos_seen_orders_v1";
+const SOUND_ENABLED_KEY = "pos_sound_enabled_v2";
 
 const toLocalDateInput = (d = new Date()) => {
   const y = d.getFullYear();
@@ -210,9 +214,31 @@ export default function POSPage() {
   const [kitchenFilter, setKitchenFilter] = useState("active");
   const [lastOrder, setLastOrder] = useState(null);
   const [printOrder, setPrintOrder] = useState(null);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const notificationAudioRef = useRef(null);
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try {
+      localStorage.removeItem("pos_sound_enabled");
+      return localStorage.getItem(SOUND_ENABLED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const soundEnabledRef = useRef(soundEnabled);
+  const [orderAlerts, setOrderAlerts] = useState([]);
+  const audioCtxRef = useRef(null);
   const razorpayLoadedRef = useRef(false);
+  const orderAlertTimersRef = useRef({});
+  const seenOrderIdsRef = useRef(null);
+  const newOrderBaselineRef = useRef(false);
+
+  const ensureSeenOrdersLoaded = () => {
+    if (seenOrderIdsRef.current === null) {
+      try {
+        seenOrderIdsRef.current = new Set(JSON.parse(sessionStorage.getItem(SEEN_ORDERS_KEY) || "[]"));
+      } catch {
+        seenOrderIdsRef.current = new Set();
+      }
+    }
+  };
 
   const [deliveryStaff, setDeliveryStaff] = useState([]);
   const [assignOrder, setAssignOrder] = useState(null);
@@ -220,7 +246,74 @@ export default function POSPage() {
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
-    notificationAudioRef.current = new Audio("/notification.mp3");
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  const getAudioContext = () => {
+    if (audioCtxRef.current) return audioCtxRef.current;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      audioCtxRef.current = new Ctx();
+    } catch (e) {
+      console.warn("POS alert: AudioContext unavailable:", e);
+      return null;
+    }
+    return audioCtxRef.current;
+  };
+
+  const playBeep = (pattern = [880]) => {
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return false;
+      if (ctx.state === "suspended") ctx.resume();
+      const beepDur = 0.15;
+      const gap = 0.09;
+      pattern.forEach((freq, i) => {
+        const t = ctx.currentTime + i * (beepDur + gap);
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.4, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + beepDur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + beepDur + 0.01);
+      });
+      return true;
+    } catch (e) {
+      console.warn("POS alert beep failed:", e);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (!soundEnabledRef.current) return;
+      const ctx = audioCtxRef.current || getAudioContext();
+      if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+    };
+    window.addEventListener("pointerdown", unlockAudio);
+    window.addEventListener("keydown", unlockAudio);
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SOUND_ENABLED_KEY, String(soundEnabled));
+    } catch { /* storage unavailable - ignore */ }
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    const timers = orderAlertTimersRef.current;
+    return () => {
+      Object.values(timers).forEach((t) => clearTimeout(t));
+    };
   }, []);
 
   const loadRazorpayScript = () => {
@@ -327,9 +420,63 @@ export default function POSPage() {
   };
 
   const playNotificationSound = () => {
-    if (!soundEnabled || !notificationAudioRef.current) return;
-    notificationAudioRef.current.currentTime = 0;
-    notificationAudioRef.current.play().catch(() => {});
+    if (!soundEnabledRef.current) return;
+    playBeep([880, 1100, 880]);
+  };
+
+  const handleSoundToggle = (checked) => {
+    setSoundEnabled(checked);
+    if (checked) {
+      const ctx = getAudioContext();
+      if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
+      playBeep([880, 880]);
+    }
+  };
+
+  const persistSeenOrders = () => {
+    try {
+      sessionStorage.setItem(SEEN_ORDERS_KEY, JSON.stringify([...seenOrderIdsRef.current]));
+    } catch { /* storage unavailable - ignore */ }
+  };
+
+  const markOrderSeen = (orderId) => {
+    if (!orderId) return;
+    ensureSeenOrdersLoaded();
+    seenOrderIdsRef.current.add(orderId);
+    persistSeenOrders();
+  };
+
+  const dismissOrderAlert = (id) => {
+    clearTimeout(orderAlertTimersRef.current[id]);
+    setOrderAlerts((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const enqueueOrderAlert = (order) => {
+    const alert = {
+      id: order._id,
+      orderNumber: order.orderNumber || order._id,
+      orderType: order.orderType,
+      customerName: order.customerName,
+      total: order.total,
+    };
+    setOrderAlerts((prev) => (prev.some((a) => a.id === alert.id) ? prev : [...prev, alert].slice(-5)));
+    clearTimeout(orderAlertTimersRef.current[order._id]);
+    orderAlertTimersRef.current[order._id] = setTimeout(() => dismissOrderAlert(order._id), 6000);
+  };
+
+  const detectNewOrders = (fetchedOrders) => {
+    if (!Array.isArray(fetchedOrders)) return;
+    ensureSeenOrdersLoaded();
+    const fresh = fetchedOrders.filter((o) => o?._id && !seenOrderIdsRef.current.has(o._id));
+    fresh.forEach((o) => seenOrderIdsRef.current.add(o._id));
+    if (fresh.length > 0) persistSeenOrders();
+    if (!newOrderBaselineRef.current) {
+      newOrderBaselineRef.current = true;
+      return;
+    }
+    if (fresh.length === 0) return;
+    fresh.forEach((o) => enqueueOrderAlert(o));
+    playNotificationSound();
   };
 
   const fetchMenu = async () => {
@@ -375,6 +522,7 @@ export default function POSPage() {
       const res = await orderAPI.getAll({ limit: 50 });
       if (res.data.success) {
         const newOrders = res.data.orders;
+        detectNewOrders(newOrders);
         setOrders(newOrders);
       }
     } catch (err) {
@@ -691,7 +839,8 @@ export default function POSPage() {
       
       if (res.data.success) {
         const createdOrder = res.data.order;
-        
+        markOrderSeen(createdOrder._id);
+
         if (paymentMethod === "upi") {
           const paymentSuccess = await openRazorpayCheckout(createdOrder);
           if (!paymentSuccess) {
@@ -871,8 +1020,8 @@ export default function POSPage() {
           <button className="btn btn-sm btn-secondary" onClick={() => { fetchOrders(true); if (isKitchen || hasRole(["admin"])) fetchKitchenOrders(); }}>
             <IconRefresh size={14} /> Refresh
           </button>
-          <label className="sound-toggle">
-            <input type="checkbox" checked={soundEnabled} onChange={(e) => setSoundEnabled(e.target.checked)} />
+          <label className="sound-toggle" title={soundEnabled ? "Order alert sound is on" : "Enable order alert sound"}>
+            <input type="checkbox" checked={soundEnabled} onChange={(e) => handleSoundToggle(e.target.checked)} />
             <span className="sound-toggle-switch"></span>
             Sound
           </label>
@@ -880,6 +1029,21 @@ export default function POSPage() {
       </div>
 
       {error && <div className="toast error">{error}</div>}
+
+      {orderAlerts.length > 0 && (
+        <div className="new-order-alerts" role="status" aria-live="polite">
+          {orderAlerts.map((alert) => (
+            <div key={alert.id} className="new-order-alert">
+              <IconBell size={18} className="new-order-alert-icon" />
+              <div className="new-order-alert-body">
+                <strong>New Order #{alert.orderNumber}</strong>
+                <span>{ORDER_TYPE_LABELS[alert.orderType] || alert.orderType} · {alert.customerName} · {formatCurrency(alert.total)}</span>
+              </div>
+              <button type="button" className="new-order-alert-close" onClick={() => dismissOrderAlert(alert.id)} aria-label="Dismiss">×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {activeTab === "pos" && isAdminOrCashier && (
         <div className="pos-layout">
