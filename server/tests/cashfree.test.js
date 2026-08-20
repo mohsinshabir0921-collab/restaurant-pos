@@ -3,16 +3,17 @@ const assert = require("node:assert/strict");
 const crypto = require("crypto");
 const express = require("express");
 
-process.env.RAZORPAY_WEBHOOK_SECRET = "test_webhook_secret";
-process.env.RAZORPAY_KEY_ID = "rzp_test_test_key_id";
-process.env.RAZORPAY_KEY_SECRET = "test_key_secret";
+process.env.CASHFREE_WEBHOOK_SECRET = "test_webhook_secret";
+process.env.CASHFREE_CLIENT_ID = "test_client_id";
+process.env.CASHFREE_CLIENT_SECRET = "test_client_secret";
+process.env.CASHFREE_ENV = "sandbox";
 
 const ORDERS_MODEL = require.resolve("../models/Order");
 const PAYMENT_MODEL = require.resolve("../models/Payment");
 const INVENTORY_MODEL = require.resolve("../models/InventoryItem");
 const RECIPE_MODEL = require.resolve("../models/Recipe");
 const STOCK_MODEL = require.resolve("../models/StockMovement");
-const RAZORPAY_CONFIG = require.resolve("../config/razorpay");
+const CASHFREE_SERVICE = require.resolve("../services/cashfree");
 const PAYMENT_CONTROLLER = require.resolve("../controllers/paymentController");
 const WEBHOOK_CONTROLLER = require.resolve("../controllers/webhookController");
 const PAYMENT_ROUTES = require.resolve("../routes/paymentRoutes");
@@ -65,9 +66,9 @@ const createStubs = () => {
       paymentGateway: data.paymentGateway || null,
       paymentStatus: data.paymentStatus || "pending",
       orderStatus: data.orderStatus || "pending",
-      razorpayOrderId: data.razorpayOrderId ?? null,
-      razorpayPaymentId: data.razorpayPaymentId ?? null,
-      razorpaySignature: data.razorpaySignature ?? null,
+      cashfreeOrderId: data.cashfreeOrderId ?? null,
+      cashfreePaymentId: data.cashfreePaymentId ?? null,
+      cashfreePaymentStatus: data.cashfreePaymentStatus ?? null,
       paidAt: data.paidAt ?? null,
       inventoryDeducted: data.inventoryDeducted ?? false,
       createdBy: data.createdBy ?? "user_1",
@@ -186,43 +187,46 @@ const createStubs = () => {
     },
   };
 
-  let orderSeq = 0;
-  const razorpay = {
+  let sessionSeq = 0;
+  const cashfree = {
     _createdOrders: [],
-    orders: {
-      create: async (options) => {
-        const rec = {
-          id: `order_${++orderSeq}`,
-          amount: options.amount,
-          currency: options.currency,
-          status: "created",
-          receipt: options.receipt,
-          notes: options.notes,
-          payment: options.payment,
-        };
-        razorpay._createdOrders.push(rec);
-        return rec;
-      },
-      fetch: async (orderId) => {
-        const found = razorpay._createdOrders.find((o) => o.id === orderId);
-        if (!found) {
-          const err = new Error("Order not found");
-          err.statusCode = 404;
-          throw err;
-        }
-        return found;
-      },
+    createOrder: async (options) => {
+      const rec = {
+        order_id: options.order_id,
+        order_amount: options.order_amount,
+        order_currency: options.order_currency,
+        order_status: "ACTIVE",
+        payment_session_id: `session_${++sessionSeq}`,
+        order_note: options.order_note,
+        customer_details: options.customer_details,
+        order_meta: options.order_meta,
+      };
+      cashfree._createdOrders.push(rec);
+      return rec;
     },
-    payments: {
-      fetch: async (paymentId) => {
-        const found = store.capturedPayments.find((p) => p.id === paymentId);
-        if (!found) {
-          const err = new Error("Payment not found");
-          err.statusCode = 404;
-          throw err;
-        }
-        return found;
-      },
+    createOrderSession: async (orderId, payload) => {
+      const rec = { order_id: orderId, payment_session_id: `session_${++sessionSeq}`, ...payload };
+      return rec;
+    },
+    fetchOrder: async (orderId) => {
+      const found = cashfree._createdOrders.find((o) => o.order_id === orderId);
+      if (!found) {
+        const err = new Error("Order not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      return found;
+    },
+    fetchOrderPayments: async (orderId) =>
+      store.capturedPayments.filter((p) => p.order_id === orderId),
+    fetchPayment: async (paymentId) => {
+      const found = store.capturedPayments.find((p) => p.cf_payment_id === paymentId);
+      if (!found) {
+        const err = new Error("Payment not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      return found;
     },
   };
 
@@ -231,9 +235,9 @@ const createStubs = () => {
   stubModule(INVENTORY_MODEL, InventoryItem);
   stubModule(RECIPE_MODEL, Recipe);
   stubModule(STOCK_MODEL, StockMovement);
-  stubModule(RAZORPAY_CONFIG, razorpay);
+  stubModule(CASHFREE_SERVICE, cashfree);
 
-  return { store, Order, Payment, razorpay };
+  return { store, Order, Payment, cashfree };
 };
 
 const freshLoad = () => {
@@ -267,15 +271,16 @@ const seedOrder = (stubs, overrides = {}) => {
           orderNumber: "ORD200000001",
           customer: null,
           customerName: "Test Customer",
+          customerPhone: "9876543210",
           total: 500,
           items: [{ menuItemId: "menu_1", name: "Pizza", qty: 1, price: 500 }],
           paymentMethod: "cash",
           paymentGateway: null,
           paymentStatus: "pending",
           orderStatus: "pending",
-          razorpayOrderId: null,
-          razorpayPaymentId: null,
-          razorpaySignature: null,
+          cashfreeOrderId: null,
+          cashfreePaymentId: null,
+          cashfreePaymentStatus: null,
           paidAt: null,
           inventoryDeducted: false,
           createdBy: "user_1",
@@ -327,52 +332,50 @@ const seedInventory = (stubs) => {
   });
 };
 
-const signWebhook = (rawBody) =>
+// Cashfree signs `x-webhook-timestamp + rawBody` with the webhook secret,
+// base64-encoded.
+const signWebhook = (rawBody, timestamp = "1690000000000") =>
   crypto
-    .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
-    .update(rawBody)
-    .digest("hex");
+    .createHmac("sha256", process.env.CASHFREE_WEBHOOK_SECRET)
+    .update(`${timestamp}${rawBody}`)
+    .digest("base64");
 
-const capturedPayload = (orderId, paymentId, overrides = {}) => ({
-  entity: "event",
-  account_id: "acc_test",
-  event: "payment.captured",
-  contains: ["payment"],
-  payload: {
+const successPayload = (orderId, paymentId, overrides = {}) => ({
+  data: {
+    order: { order_id: orderId, order_amount: 500, order_currency: "INR" },
     payment: {
-      entity: {
-        id: paymentId,
-        order_id: orderId,
-        amount: 50000,
-        currency: "INR",
-        status: "captured",
-        ...overrides,
-      },
+      cf_payment_id: paymentId,
+      order_id: orderId,
+      payment_status: "SUCCESS",
+      payment_amount: 500,
+      payment_currency: "INR",
+      payment_message: "00::Transaction success",
+      ...overrides,
     },
+    customer_details: { customer_id: "cust_ord_1", customer_name: "Test Customer" },
   },
-  created_at: Math.floor(Date.now() / 1000),
+  event_time: new Date().toISOString(),
+  type: "PAYMENT_SUCCESS_WEBHOOK",
 });
 
 const failedPayload = (orderId, paymentId) => ({
-  entity: "event",
-  account_id: "acc_test",
-  event: "payment.failed",
-  contains: ["payment"],
-  payload: {
+  data: {
+    order: { order_id: orderId, order_amount: 500, order_currency: "INR" },
     payment: {
-      entity: {
-        id: paymentId,
-        order_id: orderId,
-        amount: 50000,
-        currency: "INR",
-        status: "failed",
-      },
+      cf_payment_id: paymentId,
+      order_id: orderId,
+      payment_status: "FAILED",
+      payment_amount: 500,
+      payment_currency: "INR",
+      payment_message: "Payment failed",
     },
+    customer_details: { customer_id: "cust_ord_1", customer_name: "Test Customer" },
   },
-  created_at: Math.floor(Date.now() / 1000),
+  event_time: new Date().toISOString(),
+  type: "PAYMENT_FAILED_WEBHOOK",
 });
 
-const postWebhook = async (app, { rawBody, signature, extraHeaders = {} }) => {
+const postWebhook = async (app, { rawBody, signature, timestamp = "1690000000000", extraHeaders = {} }) => {
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   const port = server.address().port;
@@ -381,7 +384,7 @@ const postWebhook = async (app, { rawBody, signature, extraHeaders = {} }) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(signature ? { "X-Razorpay-Signature": signature } : {}),
+        ...(signature ? { "X-Webhook-Signature": signature, "X-Webhook-Timestamp": timestamp } : {}),
         ...extraHeaders,
       },
       body: rawBody,
@@ -412,21 +415,15 @@ const makeRes = () => {
   return res;
 };
 
-const verifySignature = (orderId, paymentId) =>
-  crypto
-    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-    .update(`${orderId}|${paymentId}`)
-    .digest("hex");
-
 // ---------------------------------------------------------------------------
 // Webhook signature verification
 // ---------------------------------------------------------------------------
 
 test("1. valid webhook signature is accepted", async () => {
   const stubs = freshLoad();
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const { status } = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: signWebhook(rawBody),
@@ -437,9 +434,9 @@ test("1. valid webhook signature is accepted", async () => {
 
 test("2. invalid webhook signature is rejected with 400", async () => {
   const stubs = freshLoad();
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const { status, body } = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: "deadbeef",
@@ -451,9 +448,9 @@ test("2. invalid webhook signature is rejected with 400", async () => {
 
 test("2b. missing webhook signature is rejected with 400", async () => {
   const stubs = freshLoad();
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const { status } = await postWebhook(stubs.buildApp(), { rawBody });
 
   assert.equal(status, 400);
@@ -463,12 +460,12 @@ test("2b. missing webhook signature is rejected with 400", async () => {
 // Event handling
 // ---------------------------------------------------------------------------
 
-test("3. payment.captured marks the order paid/confirmed", async () => {
+test("3. PAYMENT_SUCCESS_WEBHOOK marks the order paid/confirmed", async () => {
   const stubs = freshLoad();
   seedInventory(stubs);
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const { status } = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: signWebhook(rawBody),
@@ -478,17 +475,17 @@ test("3. payment.captured marks the order paid/confirmed", async () => {
   assert.equal(status, 200);
   assert.equal(order.paymentStatus, "paid");
   assert.equal(order.orderStatus, "confirmed");
-  assert.equal(order.razorpayPaymentId, "pay_1");
+  assert.equal(order.cashfreePaymentId, "pay_1");
   assert.ok(order.paidAt);
   assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
 });
 
-test("4. payment.captured received twice has no duplicate effects", async () => {
+test("4. PAYMENT_SUCCESS_WEBHOOK received twice has no duplicate effects", async () => {
   const stubs = freshLoad();
   seedInventory(stubs);
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const app = stubs.buildApp();
   const sig = signWebhook(rawBody);
 
@@ -503,11 +500,11 @@ test("4. payment.captured received twice has no duplicate effects", async () => 
   assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
 });
 
-test("5. payment.failed marks the order failed", async () => {
+test("5. PAYMENT_FAILED_WEBHOOK marks the order failed", async () => {
   const stubs = freshLoad();
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(failedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(failedPayload("pos_ord_1", "pay_1"));
   const { status } = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: signWebhook(rawBody),
@@ -520,12 +517,12 @@ test("5. payment.failed marks the order failed", async () => {
   assert.equal(stubs.store.payments.filter((p) => p.status === "failed").length, 1);
 });
 
-test("6. payment.failed received twice has no duplicate effects", async () => {
+test("6. PAYMENT_FAILED_WEBHOOK received twice has no duplicate effects", async () => {
   const stubs = freshLoad();
   seedInventory(stubs);
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const rawBody = JSON.stringify(failedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(failedPayload("pos_ord_1", "pay_1"));
   const app = stubs.buildApp();
   const sig = signWebhook(rawBody);
 
@@ -540,18 +537,18 @@ test("6. payment.failed received twice has no duplicate effects", async () => {
   assert.equal(stubs.store.deductions.length, 0);
 });
 
-test("6b. payment.failed never downgrades a paid order", async () => {
+test("6b. PAYMENT_FAILED_WEBHOOK never downgrades a paid order", async () => {
   const stubs = freshLoad();
   seedInventory(stubs);
-  seedOrder(stubs, { razorpayOrderId: "order_1" });
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
 
-  const capturedBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const capturedBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   await postWebhook(stubs.buildApp(), {
     rawBody: capturedBody,
     signature: signWebhook(capturedBody),
   });
 
-  const failedBody = JSON.stringify(failedPayload("order_1", "pay_1"));
+  const failedBody = JSON.stringify(failedPayload("pos_ord_1", "pay_1"));
   const { status } = await postWebhook(stubs.buildApp(), {
     rawBody: failedBody,
     signature: signWebhook(failedBody),
@@ -569,13 +566,14 @@ test("6b. payment.failed never downgrades a paid order", async () => {
 
 const setupVerifiedFlow = (stubs) => {
   seedInventory(stubs);
-  seedOrder(stubs);
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
   stubs.store.capturedPayments.push({
-    id: "pay_1",
-    order_id: "order_1",
-    amount: 50000,
-    currency: "INR",
-    status: "captured",
+    cf_payment_id: "pay_1",
+    order_id: "pos_ord_1",
+    order_amount: 500,
+    payment_status: "SUCCESS",
+    payment_amount: 500,
+    payment_currency: "INR",
   });
 };
 
@@ -583,10 +581,9 @@ test("7. webhook before browser verification keeps state consistent", async () =
   const stubs = freshLoad();
   setupVerifiedFlow(stubs);
   const order = stubs.store.orders[0];
-  order.razorpayOrderId = "order_1";
 
   // webhook first
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const first = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: signWebhook(rawBody),
@@ -596,12 +593,10 @@ test("7. webhook before browser verification keeps state consistent", async () =
 
   // browser verification afterwards
   const res = makeRes();
-  await stubs.paymentController.verifyRazorpayPayment(
+  await stubs.paymentController.verifyCashfreePayment(
     makeReq({
       orderId: "ord_1",
-      razorpay_order_id: "order_1",
-      razorpay_payment_id: "pay_1",
-      razorpay_signature: verifySignature("order_1", "pay_1"),
+      cashfreeOrderId: "pos_ord_1",
     }),
     res
   );
@@ -616,16 +611,13 @@ test("8. browser verification before webhook keeps state consistent", async () =
   const stubs = freshLoad();
   setupVerifiedFlow(stubs);
   const order = stubs.store.orders[0];
-  order.razorpayOrderId = "order_1";
 
   // browser verification first
   const res = makeRes();
-  await stubs.paymentController.verifyRazorpayPayment(
+  await stubs.paymentController.verifyCashfreePayment(
     makeReq({
       orderId: "ord_1",
-      razorpay_order_id: "order_1",
-      razorpay_payment_id: "pay_1",
-      razorpay_signature: verifySignature("order_1", "pay_1"),
+      cashfreeOrderId: "pos_ord_1",
     }),
     res
   );
@@ -633,7 +625,7 @@ test("8. browser verification before webhook keeps state consistent", async () =
   assert.equal(order.paymentStatus, "paid");
 
   // webhook afterwards
-  const rawBody = JSON.stringify(capturedPayload("order_1", "pay_1"));
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
   const webhookRes = await postWebhook(stubs.buildApp(), {
     rawBody,
     signature: signWebhook(rawBody),
@@ -648,21 +640,18 @@ test("9. repeated browser verification is idempotent", async () => {
   const stubs = freshLoad();
   setupVerifiedFlow(stubs);
   const order = stubs.store.orders[0];
-  order.razorpayOrderId = "order_1";
 
   const req = makeReq({
     orderId: "ord_1",
-    razorpay_order_id: "order_1",
-    razorpay_payment_id: "pay_1",
-    razorpay_signature: verifySignature("order_1", "pay_1"),
+    cashfreeOrderId: "pos_ord_1",
   });
 
   const first = makeRes();
-  await stubs.paymentController.verifyRazorpayPayment(req, first);
+  await stubs.paymentController.verifyCashfreePayment(req, first);
   assert.equal(first._status, 200);
 
   const second = makeRes();
-  await stubs.paymentController.verifyRazorpayPayment(req, second);
+  await stubs.paymentController.verifyCashfreePayment(req, second);
   assert.equal(second._status, 200);
   assert.equal(second._body.message, "Payment already verified");
 
@@ -671,44 +660,75 @@ test("9. repeated browser verification is idempotent", async () => {
   assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
 });
 
+test("10. verify rejects when the order has no Cashfree order created", async () => {
+  const stubs = freshLoad();
+  seedOrder(stubs, { cashfreeOrderId: null });
+
+  const res = makeRes();
+  await stubs.paymentController.verifyCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_1" }),
+    res
+  );
+
+  assert.equal(res._status, 400);
+  assert.equal(res._body.message, "No Cashfree order was created for this order");
+});
+
+test("11. verify rejects on a Cashfree order ID mismatch", async () => {
+  const stubs = freshLoad();
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
+
+  const res = makeRes();
+  await stubs.paymentController.verifyCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_OTHER" }),
+    res
+  );
+
+  assert.equal(res._status, 400);
+  assert.equal(res._body.message, "Cashfree order ID mismatch");
+});
+
 // ---------------------------------------------------------------------------
-// Order creation idempotency + capture config
+// Order creation idempotency + payload shape
 // ---------------------------------------------------------------------------
 
-test("12. retrying createRazorpayOrder reuses the existing Razorpay order", async () => {
+test("12. retrying createCashfreeOrder reuses the existing Cashfree order", async () => {
   const stubs = freshLoad();
   seedOrder(stubs);
 
   const req = makeReq({ orderId: "ord_1", amount: 1 });
   const first = makeRes();
-  await stubs.paymentController.createRazorpayOrder(req, first);
+  await stubs.paymentController.createCashfreeOrder(req, first);
 
   const second = makeRes();
-  await stubs.paymentController.createRazorpayOrder(req, second);
+  await stubs.paymentController.createCashfreeOrder(req, second);
 
   assert.equal(first._status, 200);
   assert.equal(second._status, 200);
   assert.equal(first._body.success, true);
   assert.equal(second._body.success, true);
-  assert.equal(first._body.razorpayOrderId, second._body.razorpayOrderId);
-  assert.equal(stubs.razorpay._createdOrders.length, 1, "no duplicate Razorpay order");
-  assert.equal(first._body.amount, 50000, "amount is order total, client amount ignored");
+  assert.equal(first._body.cashfreeOrderId, second._body.cashfreeOrderId);
+  assert.equal(stubs.cashfree._createdOrders.length, 1, "no duplicate Cashfree order");
+  assert.equal(first._body.amount, 500, "amount is order total, client amount ignored");
 });
 
-test("12b. createRazorpayOrder passes explicit automatic capture config", async () => {
+test("12b. createCashfreeOrder builds a valid order payload", async () => {
   const stubs = freshLoad();
   seedOrder(stubs);
 
   const res = makeRes();
-  await stubs.paymentController.createRazorpayOrder(makeReq({ orderId: "ord_1" }), res);
+  await stubs.paymentController.createCashfreeOrder(makeReq({ orderId: "ord_1" }), res);
 
-  const created = stubs.razorpay._createdOrders[0];
-  assert.ok(created, "a Razorpay order was created");
-  assert.deepEqual(created.payment, {
-    capture: "automatic",
-    capture_options: { automatic_expiry_period: 12 },
-  });
-  assert.equal(res._body.key, "rzp_test_test_key_id", "frontend receives only the Key ID");
+  const created = stubs.cashfree._createdOrders[0];
+  assert.ok(created, "a Cashfree order was created");
+  assert.equal(created.order_id, "pos_ord_1");
+  assert.equal(created.order_amount, 500);
+  assert.equal(created.order_currency, "INR");
+  assert.equal(created.customer_details.customer_id, "cust_ord_1");
+  assert.equal(created.customer_details.customer_phone, "9876543210");
+  assert.deepEqual(created.order_meta.payment_methods, "upi,cc,dc,nb");
+  assert.ok(res._body.paymentSessionId, "frontend receives the payment session id");
+  assert.equal(res._body.environment, "sandbox");
   assert.equal(res._body.currency, "INR");
 });
 
@@ -719,28 +739,27 @@ test("13. existing test-mode checkout flow still works end-to-end", async () => 
 
   // 1. create-order
   const createRes = makeRes();
-  await stubs.paymentController.createRazorpayOrder(makeReq({ orderId: "ord_1" }), createRes);
+  await stubs.paymentController.createCashfreeOrder(makeReq({ orderId: "ord_1" }), createRes);
   assert.equal(createRes._status, 200);
-  assert.ok(createRes._body.razorpayOrderId);
-  const razorpayOrderId = createRes._body.razorpayOrderId;
+  assert.ok(createRes._body.cashfreeOrderId);
+  const cashfreeOrderId = createRes._body.cashfreeOrderId;
 
-  // 2. simulate the captured payment for that razorpay order
+  // 2. simulate the successful payment for that cashfree order
   stubs.store.capturedPayments.push({
-    id: "pay_1",
-    order_id: razorpayOrderId,
-    amount: 50000,
-    currency: "INR",
-    status: "captured",
+    cf_payment_id: "pay_1",
+    order_id: cashfreeOrderId,
+    order_amount: 500,
+    payment_status: "SUCCESS",
+    payment_amount: 500,
+    payment_currency: "INR",
   });
 
   // 3. browser verification
   const verifyRes = makeRes();
-  await stubs.paymentController.verifyRazorpayPayment(
+  await stubs.paymentController.verifyCashfreePayment(
     makeReq({
       orderId: "ord_1",
-      razorpay_order_id: razorpayOrderId,
-      razorpay_payment_id: "pay_1",
-      razorpay_signature: verifySignature(razorpayOrderId, "pay_1"),
+      cashfreeOrderId,
     }),
     verifyRes
   );
@@ -752,8 +771,33 @@ test("13. existing test-mode checkout flow still works end-to-end", async () => 
   assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
 });
 
+test("14. verify rejects when Cashfree reports the payment as not successful", async () => {
+  const stubs = freshLoad();
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
+  stubs.store.capturedPayments.push({
+    cf_payment_id: "pay_1",
+    order_id: "pos_ord_1",
+    order_amount: 500,
+    payment_status: "FAILED",
+    payment_amount: 500,
+    payment_currency: "INR",
+  });
+
+  const res = makeRes();
+  await stubs.paymentController.verifyCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_1" }),
+    res
+  );
+
+  const order = stubs.store.orders[0];
+  assert.equal(res._status, 400);
+  assert.equal(res._body.message, "Payment is not successful");
+  assert.equal(order.paymentStatus, "failed");
+  assert.equal(stubs.store.payments.filter((p) => p.status === "failed").length, 1);
+});
+
 after(() => {
-  for (const absPath of [ORDERS_MODEL, PAYMENT_MODEL, INVENTORY_MODEL, RECIPE_MODEL, STOCK_MODEL, RAZORPAY_CONFIG, PAYMENT_CONTROLLER, WEBHOOK_CONTROLLER, PAYMENT_ROUTES]) {
+  for (const absPath of [ORDERS_MODEL, PAYMENT_MODEL, INVENTORY_MODEL, RECIPE_MODEL, STOCK_MODEL, CASHFREE_SERVICE, PAYMENT_CONTROLLER, WEBHOOK_CONTROLLER, PAYMENT_ROUTES]) {
     delete require.cache[absPath];
   }
 });

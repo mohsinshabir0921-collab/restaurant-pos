@@ -6,62 +6,83 @@ const {
   deductInventoryForOrder,
 } = require("./paymentController");
 
-const SUPPORTED_EVENTS = new Set(["payment.captured", "payment.failed"]);
+// Cashfree webhook events that affect the restaurant order.
+const SUPPORTED_EVENTS = new Set([
+  "PAYMENT_SUCCESS_WEBHOOK",
+  "PAYMENT_FAILED_WEBHOOK",
+]);
 
-// Verifies the Razorpay webhook signature: HMAC-SHA256 of the raw request body
-// using RAZORPAY_WEBHOOK_SECRET, compared in constant time. The raw Buffer body
-// is required - the signature is invalid against a JSON-parsed body.
-const verifyWebhookSignature = (rawBody, signature, secret) => {
+// Verifies the Cashfree webhook signature: base64(HMAC-SHA256) of the raw
+// request body using the webhook secret, compared in constant time. Cashfree
+// signs `x-webhook-timestamp + rawBody`; when the timestamp header is absent
+// we fall back to the raw body alone for maximum compatibility with older
+// dashboard configurations. The raw Buffer body is required.
+const verifyWebhookSignature = (rawBody, signature, secret, timestamp = "") => {
   if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) return false;
   if (typeof signature !== "string" || signature.length === 0) return false;
   if (!secret) return false;
 
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(rawBody)
-    .digest("hex");
+  const raw = rawBody.toString("utf8");
 
-  const expectedBuffer = Buffer.from(expected, "hex");
-  const signatureBuffer = Buffer.from(signature, "hex");
+  const candidates = timestamp
+    ? [`${timestamp}${raw}`, raw]
+    : [raw];
 
-  if (expectedBuffer.length !== signatureBuffer.length) return false;
-  return crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
+  for (const candidate of candidates) {
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(candidate)
+      .digest("base64");
+
+    const expectedBuffer = Buffer.from(expected, "base64");
+    const signatureBuffer = Buffer.from(signature, "base64");
+
+    if (
+      expectedBuffer.length === signatureBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, signatureBuffer)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
-// Idempotent ledger sync for a captured Razorpay payment. ensurePaid never
+// Idempotent ledger sync for a successful Cashfree payment. ensurePaid never
 // creates a duplicate "paid" record, so repeated webhooks/verifies are safe.
-const settleLedger = async (order, razorpayOrderId, razorpayPaymentId) => {
+const settleLedger = async (order, cashfreeOrderId, cashfreePaymentId) => {
   try {
     await Payment.ensurePaid({
       order: order._id,
       customer: order.customer || null,
       amount: order.total,
       method: "upi",
-      gateway: "razorpay",
+      gateway: "cashfree",
       collectedBy: order.createdBy,
       gatewayData: {
-        gatewayOrderId: razorpayOrderId,
-        gatewayPaymentId: razorpayPaymentId,
+        gatewayOrderId: cashfreeOrderId,
+        gatewayPaymentId: cashfreePaymentId,
       },
     });
   } catch (paymentError) {
-    console.error("RAZORPAY WEBHOOK PAYMENT RECORD SYNC FAILED:", paymentError.message);
+    console.error("CASHFREE WEBHOOK PAYMENT RECORD SYNC FAILED:", paymentError.message);
   }
 };
 
-const handlePaymentCaptured = async (eventPayload) => {
-  const paymentEntity = eventPayload?.payload?.payment?.entity;
-  if (!paymentEntity?.id || !paymentEntity.order_id) {
-    console.error("RAZORPAY WEBHOOK: payment entity missing for payment.captured");
+const handlePaymentSuccess = async (eventPayload) => {
+  const paymentEntity = eventPayload?.data?.payment;
+  const orderEntity = eventPayload?.data?.order || {};
+  if (!paymentEntity?.cf_payment_id || !paymentEntity.order_id) {
+    console.error("CASHFREE WEBHOOK: payment entity missing for PAYMENT_SUCCESS_WEBHOOK");
     return;
   }
 
-  const razorpayPaymentId = paymentEntity.id;
-  const razorpayOrderId = paymentEntity.order_id;
+  const cashfreePaymentId = String(paymentEntity.cf_payment_id);
+  const cashfreeOrderId = paymentEntity.order_id;
 
-  const order = await Order.findOne({ razorpayOrderId });
+  const order = await Order.findOne({ cashfreeOrderId });
   if (!order) {
-    console.error("RAZORPAY WEBHOOK: no order found for razorpay order", razorpayOrderId);
+    console.error("CASHFREE WEBHOOK: no order found for cashfree order", cashfreeOrderId);
     return;
   }
 
@@ -72,8 +93,8 @@ const handlePaymentCaptured = async (eventPayload) => {
 
   // Idempotent re-delivery of a settled payment: only re-assert the ledger,
   // never re-apply the transition or inventory deduction.
-  if (order.paymentStatus === "paid" && order.razorpayPaymentId === razorpayPaymentId) {
-    await settleLedger(order, razorpayOrderId, razorpayPaymentId);
+  if (order.paymentStatus === "paid" && order.cashfreePaymentId === cashfreePaymentId) {
+    await settleLedger(order, cashfreeOrderId, cashfreePaymentId);
     return;
   }
 
@@ -83,26 +104,29 @@ const handlePaymentCaptured = async (eventPayload) => {
   }
 
   // Validate the payment/order relationship and amount/currency where the data
-  // allows it, mirroring the browser-verify checks.
-  const expectedAmount = Math.round(Number(order.total) * 100);
-  if (Number(paymentEntity.amount) !== expectedAmount) {
-    console.error("RAZORPAY WEBHOOK: amount mismatch for order", order.orderNumber);
+  // allows it, mirroring the browser-verify checks. The webhook carries the
+  // order amount on data.order and the charged amount on data.payment.
+  const expectedAmount = Math.round(Number(order.total) * 100) / 100;
+  const reportedAmount =
+    paymentEntity.order_amount ?? orderEntity.order_amount ?? paymentEntity.payment_amount;
+  if (Number(reportedAmount) !== expectedAmount) {
+    console.error("CASHFREE WEBHOOK: amount mismatch for order", order.orderNumber);
     return;
   }
-  if (paymentEntity.currency !== "INR") {
-    console.error("RAZORPAY WEBHOOK: currency mismatch for order", order.orderNumber);
+  if (paymentEntity.payment_currency !== "INR") {
+    console.error("CASHFREE WEBHOOK: currency mismatch for order", order.orderNumber);
     return;
   }
-  if (paymentEntity.status !== "captured") {
-    console.error("RAZORPAY WEBHOOK: payment not captured for order", order.orderNumber);
+  if (paymentEntity.payment_status !== "SUCCESS") {
+    console.error("CASHFREE WEBHOOK: payment not successful for order", order.orderNumber);
     return;
   }
 
   // Respect the order state machine: pending -> confirmed is the only valid
-  // route into a paid Razorpay order.
+  // route into a paid Cashfree order.
   if (!order.canTransitionTo("confirmed")) {
     console.error(
-      "RAZORPAY WEBHOOK: cannot confirm order",
+      "CASHFREE WEBHOOK: cannot confirm order",
       order.orderNumber,
       "in status",
       order.orderStatus
@@ -113,34 +137,34 @@ const handlePaymentCaptured = async (eventPayload) => {
   await order.transitionTo("confirmed", order.createdBy);
 
   order.paymentMethod = "upi";
-  order.paymentGateway = "razorpay";
+  order.paymentGateway = "cashfree";
   order.paymentStatus = "paid";
-  order.razorpayOrderId = razorpayOrderId;
-  order.razorpayPaymentId = razorpayPaymentId;
-  order.razorpaySignature = "";
+  order.cashfreeOrderId = cashfreeOrderId;
+  order.cashfreePaymentId = cashfreePaymentId;
+  order.cashfreePaymentStatus = paymentEntity.payment_status;
   order.paidAt = new Date();
 
   await order.save();
 
-  await settleLedger(order, razorpayOrderId, razorpayPaymentId);
+  await settleLedger(order, cashfreeOrderId, cashfreePaymentId);
 
   try {
     await deductInventoryForOrder(order, order.createdBy);
   } catch (inventoryError) {
-    console.error("RAZORPAY WEBHOOK INVENTORY DEDUCTION FAILED:", inventoryError.message);
+    console.error("CASHFREE WEBHOOK INVENTORY DEDUCTION FAILED:", inventoryError.message);
   }
 };
 
 const handlePaymentFailed = async (eventPayload) => {
-  const paymentEntity = eventPayload?.payload?.payment?.entity;
+  const paymentEntity = eventPayload?.data?.payment;
   if (!paymentEntity?.order_id) {
-    console.error("RAZORPAY WEBHOOK: payment entity missing for payment.failed");
+    console.error("CASHFREE WEBHOOK: payment entity missing for PAYMENT_FAILED_WEBHOOK");
     return;
   }
 
-  const order = await Order.findOne({ razorpayOrderId: paymentEntity.order_id });
+  const order = await Order.findOne({ cashfreeOrderId: paymentEntity.order_id });
   if (!order) {
-    console.error("RAZORPAY WEBHOOK: no order found for razorpay order", paymentEntity.order_id);
+    console.error("CASHFREE WEBHOOK: no order found for cashfree order", paymentEntity.order_id);
     return;
   }
 
@@ -156,40 +180,40 @@ const handlePaymentFailed = async (eventPayload) => {
   }
 
   order.paymentMethod = "upi";
-  order.paymentGateway = "razorpay";
+  order.paymentGateway = "cashfree";
   order.paymentStatus = "failed";
   await order.save();
 
   try {
-    await markPaymentFailed(order, "Payment failed via Razorpay webhook");
+    await markPaymentFailed(order, "Payment failed via Cashfree webhook");
   } catch (paymentError) {
-    console.error("RAZORPAY WEBHOOK PAYMENT FAILURE RECORD SYNC FAILED:", paymentError.message);
+    console.error("CASHFREE WEBHOOK PAYMENT FAILURE RECORD SYNC FAILED:", paymentError.message);
   }
 };
 
-// POST /api/payment/webhook - entry point for Razorpay webhooks. Requires the
+// POST /api/payment/webhook - entry point for Cashfree webhooks. Requires the
 // raw request body (mounted with express.raw) so the HMAC can be recomputed
-// over the exact bytes Razorpay signed.
-const handleRazorpayWebhook = async (req, res) => {
+// over the exact bytes Cashfree signed.
+const handleCashfreeWebhook = async (req, res) => {
   try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const secret = process.env.CASHFREE_WEBHOOK_SECRET || process.env.CASHFREE_CLIENT_SECRET;
     if (!secret) {
-      console.error("RAZORPAY WEBHOOK ERROR: RAZORPAY_WEBHOOK_SECRET is not configured");
+      console.error("CASHFREE WEBHOOK ERROR: webhook secret is not configured");
       return res.status(500).json({
         success: false,
         message: "Webhook secret is not configured",
       });
     }
 
-    const signature = req.get("x-razorpay-signature");
+    const signature = req.get("x-webhook-signature");
     if (!signature) {
       return res.status(400).json({
         success: false,
-        message: "Missing X-Razorpay-Signature header",
+        message: "Missing X-Webhook-Signature header",
       });
     }
 
-    if (!verifyWebhookSignature(req.body, signature, secret)) {
+    if (!verifyWebhookSignature(req.body, signature, secret, req.get("x-webhook-timestamp"))) {
       return res.status(400).json({
         success: false,
         message: "Invalid webhook signature",
@@ -206,19 +230,19 @@ const handleRazorpayWebhook = async (req, res) => {
       });
     }
 
-    const event = eventPayload?.event;
+    const type = eventPayload?.type;
 
-    if (event === "payment.captured") {
-      await handlePaymentCaptured(eventPayload);
-    } else if (event === "payment.failed") {
+    if (type === "PAYMENT_SUCCESS_WEBHOOK") {
+      await handlePaymentSuccess(eventPayload);
+    } else if (type === "PAYMENT_FAILED_WEBHOOK") {
       await handlePaymentFailed(eventPayload);
     }
-    // Unsupported events are acknowledged (HTTP 200) so Razorpay does not
+    // Unsupported events are acknowledged (HTTP 200) so Cashfree does not
     // retry them; only events that affect the restaurant order are processed.
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error("RAZORPAY WEBHOOK ERROR:", error.message);
+    console.error("CASHFREE WEBHOOK ERROR:", error.message);
     return res.status(500).json({
       success: false,
       message: "Webhook processing failed",
@@ -227,8 +251,8 @@ const handleRazorpayWebhook = async (req, res) => {
 };
 
 module.exports = {
-  handleRazorpayWebhook,
-  handlePaymentCaptured,
+  handleCashfreeWebhook,
+  handlePaymentSuccess,
   handlePaymentFailed,
   verifyWebhookSignature,
 };

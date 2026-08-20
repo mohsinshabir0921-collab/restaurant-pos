@@ -1,10 +1,9 @@
-const crypto = require("crypto");
-const razorpay = require("../config/razorpay");
 const Order = require("../models/Order");
 const Payment = require("../models/Payment");
 const InventoryItem = require("../models/InventoryItem");
 const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
+const cashfree = require("../services/cashfree");
 const { handleError } = require("../utils/httpError");
 
 // Aggregate required inventory across all order items and report shortages.
@@ -112,19 +111,33 @@ const deductInventoryForOrder = async (order, userId) => {
   }
 };
 
-const buildRazorpayOrderResponse = (order, razorpayOrder) => ({
-  success: true,
-  key: process.env.RAZORPAY_KEY_ID,
-  orderId: order._id,
-  razorpayOrderId: razorpayOrder.id,
-  amount: razorpayOrder.amount,
-  currency: razorpayOrder.currency,
-  customerName: order.customerName || "",
-  phone: order.phone || "",
-  email: order.email || "",
+// Cashfree uses rupee amounts (not paise) and requires a stable, unique
+// merchant order_id per restaurant order. Derive it from the Mongo id so
+// create-order is naturally idempotent and webhooks can be matched back.
+const merchantOrderId = (order) => `pos_${order._id}`;
+const merchantCustomerId = (order) => `cust_${order._id}`;
+
+const buildCustomerDetails = (order) => ({
+  customer_id: merchantCustomerId(order),
+  customer_name: order.customerName || "Customer",
+  customer_email: order.customerEmail || order.email || "",
+  customer_phone: order.customerPhone || order.phone || "0000000000",
 });
 
-const createRazorpayOrder = async (req, res) => {
+const buildCashfreeOrderResponse = (order, cashfreeOrder, session) => ({
+  success: true,
+  orderId: order._id,
+  cashfreeOrderId: cashfreeOrder.order_id,
+  paymentSessionId: session?.payment_session_id || cashfreeOrder.payment_session_id,
+  amount: Number(cashfreeOrder.order_amount),
+  currency: cashfreeOrder.order_currency,
+  environment: process.env.CASHFREE_ENV === "production" ? "production" : "sandbox",
+  customerName: order.customerName || "",
+  phone: order.customerPhone || "",
+  email: order.customerEmail || "",
+});
+
+const createCashfreeOrder = async (req, res) => {
   try {
     const { orderId } = req.body;
 
@@ -151,73 +164,75 @@ const createRazorpayOrder = async (req, res) => {
       });
     }
 
-    const expectedAmount = Math.round(Number(order.total) * 100);
+    const expectedAmount = Math.round(Number(order.total) * 100) / 100;
 
-    // Idempotency: a restaurant order must map to at most one Razorpay order.
-    // Razorpay orders are immutable, so a previously created order can only be
-    // reused when its amount/currency still match the current total. If the
-    // order changed, a fresh Razorpay order is created instead.
-    if (order.razorpayOrderId) {
+    // Idempotency: a restaurant order maps to at most one Cashfree order.
+    // Cashfree orders are immutable, so a previously created order can only be
+    // reused when its amount/currency still match the current total. If they
+    // do, a fresh payment session is issued so the customer can retry without
+    // recreating the order. If they changed, a new Cashfree order is created.
+    if (order.cashfreeOrderId) {
       try {
-        const existingOrder = await razorpay.orders.fetch(order.razorpayOrderId);
+        const existingOrder = await cashfree.fetchOrder(order.cashfreeOrderId);
         if (
           existingOrder &&
-          existingOrder.id === order.razorpayOrderId &&
-          Number(existingOrder.amount) === expectedAmount &&
-          existingOrder.currency === "INR"
+          existingOrder.order_id === order.cashfreeOrderId &&
+          Number(existingOrder.order_amount) === expectedAmount &&
+          existingOrder.order_currency === "INR"
         ) {
+          const session = await cashfree.createOrderSession(order.cashfreeOrderId, {
+            order_amount: expectedAmount,
+            order_currency: "INR",
+            customer_details: buildCustomerDetails(order),
+          });
+
           order.paymentMethod = "upi";
-          order.paymentGateway = "razorpay";
+          order.paymentGateway = "cashfree";
           order.paymentStatus = "pending";
           await order.save();
 
-          return res.status(200).json(buildRazorpayOrderResponse(order, existingOrder));
+          return res.status(200).json(buildCashfreeOrderResponse(order, existingOrder, session));
         }
       } catch (fetchError) {
-        console.error("RAZORPAY ORDER FETCH ERROR:", fetchError.message);
+        console.error("CASHFREE ORDER FETCH ERROR:", fetchError.message);
       }
     }
 
     const options = {
-      amount: expectedAmount,
-      currency: "INR",
-      receipt: `order_${order._id}`.slice(0, 40),
-      notes: {
-        orderId: order._id.toString(),
-        customerName: order.customerName || "",
-      },
-      // Explicit automatic capture: the order-level setting overrides any
-      // Dashboard capture configuration, so payments are captured automatically
-      // and the existing server-side "captured" verification stays valid.
-      payment: {
-        capture: "automatic",
-        capture_options: {
-          automatic_expiry_period: 12,
-        },
+      order_id: merchantOrderId(order),
+      order_amount: expectedAmount,
+      order_currency: "INR",
+      order_note: `Order ${order.orderNumber}`,
+      customer_details: buildCustomerDetails(order),
+      order_meta: {
+        payment_methods: "upi,cc,dc,nb",
+        ...(process.env.CASHFREE_WEBHOOK_URL
+          ? { notify_url: process.env.CASHFREE_WEBHOOK_URL }
+          : {}),
       },
     };
 
-    const razorpayOrder = await razorpay.orders.create(options);
+    const cashfreeOrder = await cashfree.createOrder(options);
 
     order.paymentMethod = "upi";
-    order.paymentGateway = "razorpay";
+    order.paymentGateway = "cashfree";
     order.paymentStatus = "pending";
-    order.razorpayOrderId = razorpayOrder.id;
+    order.cashfreeOrderId = cashfreeOrder.order_id;
 
     await order.save();
 
-    return res.status(200).json(buildRazorpayOrderResponse(order, razorpayOrder));
+    return res.status(200).json(buildCashfreeOrderResponse(order, cashfreeOrder));
   } catch (error) {
     console.error(
-      "CREATE RAZORPAY ORDER ERROR:",
-      error?.response?.data || error.message
+      "CREATE CASHFREE ORDER ERROR:",
+      error?.data || error.message
     );
 
     return handleError(res, error);
   }
 };
 
-// Keep the Order and Payment ledger consistent whenever Razorpay verification
+// Keep the Order and Payment ledger consistent whenever Cashfree verification
 // fails. Reuses the existing Payment.markFailed mechanism for existing records
 // and only creates a failed record when none exists yet.
 const markPaymentFailed = async (order, reason) => {
@@ -239,27 +254,17 @@ const markPaymentFailed = async (order, reason) => {
     customer: order.customer || null,
     amount: order.total,
     method: "upi",
-    gateway: "razorpay",
+    gateway: "cashfree",
     status: "failed",
     notes: reason,
   });
 };
 
-const verifyRazorpayPayment = async (req, res) => {
+const verifyCashfreePayment = async (req, res) => {
   try {
-    const {
-      orderId,
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    } = req.body;
+    const { orderId, cashfreeOrderId, cfPaymentId } = req.body;
 
-    if (
-      !orderId ||
-      !razorpay_order_id ||
-      !razorpay_payment_id ||
-      !razorpay_signature
-    ) {
+    if (!orderId || !cashfreeOrderId) {
       return res.status(400).json({
         success: false,
         message: "Missing payment verification fields",
@@ -283,29 +288,25 @@ const verifyRazorpayPayment = async (req, res) => {
       });
     }
 
-    // A verification must correspond to a Razorpay order actually created for
-    // this POS order. If createRazorpayOrder was never called, reject.
-    if (!order.razorpayOrderId) {
+    // A verification must correspond to a Cashfree order actually created for
+    // this POS order. If createCashfreeOrder was never called, reject.
+    if (!order.cashfreeOrderId) {
       return res.status(400).json({
         success: false,
-        message: "No Razorpay order was created for this order",
+        message: "No Cashfree order was created for this order",
       });
     }
 
-    if (order.razorpayOrderId !== razorpay_order_id) {
+    if (order.cashfreeOrderId !== cashfreeOrderId) {
       return res.status(400).json({
         success: false,
-        message: "Razorpay order ID mismatch",
+        message: "Cashfree order ID mismatch",
       });
     }
 
     // Idempotent re-verification of an already settled payment: the order is
-    // already paid and this is the same Razorpay payment, so report success
-    // without re-applying any side effects.
-    if (
-      order.paymentStatus === "paid" &&
-      order.razorpayPaymentId === razorpay_payment_id
-    ) {
+    // already paid, so report success without re-applying any side effects.
+    if (order.paymentStatus === "paid" && order.cashfreePaymentId) {
       return res.status(200).json({
         success: true,
         message: "Payment already verified",
@@ -321,65 +322,59 @@ const verifyRazorpayPayment = async (req, res) => {
       });
     }
 
-    const generatedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
-
-    if (generatedSignature !== razorpay_signature) {
-      order.paymentMethod = "upi";
-      order.paymentGateway = "razorpay";
-      order.paymentStatus = "failed";
-      await order.save();
-
-      try {
-        await markPaymentFailed(order, "Invalid payment signature");
-      } catch (paymentError) {
-        console.error("RAZORPAY PAYMENT FAILURE RECORD SYNC FAILED:", paymentError);
-      }
-
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payment signature",
-      });
-    }
-
-    // Confirm the payment with Razorpay server-side: the client signature alone
-    // does not prove the charged amount, currency, or captured state.
-    let razorpayPayment;
+    // Confirm the payment with Cashfree server-side: the client drop-in result
+    // alone does not prove the charged amount, currency, or captured state.
+    let payment;
     try {
-      razorpayPayment = await razorpay.payments.fetch(razorpay_payment_id);
+      const payments = await cashfree.fetchOrderPayments(cashfreeOrderId);
+      if (Array.isArray(payments) && payments.length > 0) {
+        payment = cfPaymentId
+          ? payments.find((p) => String(p.cf_payment_id) === String(cfPaymentId))
+          : payments[0];
+        // Fall back to the latest attempt when the given id is unknown.
+        if (!payment) payment = payments[0];
+      }
     } catch (fetchError) {
-      console.error("RAZORPAY PAYMENT FETCH FAILED:", fetchError.message);
+      console.error("CASHFREE PAYMENTS FETCH FAILED:", fetchError.message);
 
+      if (cfPaymentId) {
+        try {
+          payment = await cashfree.fetchPayment(cfPaymentId);
+        } catch (singleFetchError) {
+          console.error("CASHFREE SINGLE PAYMENT FETCH FAILED:", singleFetchError.message);
+        }
+      }
+    }
+
+    if (!payment) {
       order.paymentStatus = "failed";
       await order.save();
 
       try {
-        await markPaymentFailed(order, "Could not confirm payment with Razorpay");
+        await markPaymentFailed(order, "Could not confirm payment with Cashfree");
       } catch (paymentError) {
-        console.error("RAZORPAY PAYMENT FAILURE RECORD SYNC FAILED:", paymentError);
+        console.error("CASHFREE PAYMENT FAILURE RECORD SYNC FAILED:", paymentError);
       }
 
       return res.status(400).json({
         success: false,
-        message: "Could not confirm payment with Razorpay",
+        message: "Could not confirm payment with Cashfree",
       });
     }
 
-    const expectedAmount = Math.round(Number(order.total) * 100);
+    const expectedAmount = Math.round(Number(order.total) * 100) / 100;
     const mismatches = [];
 
-    if (razorpayPayment.order_id !== razorpay_order_id) {
-      mismatches.push("Razorpay order ID mismatch");
+    if (String(payment.order_id) !== cashfreeOrderId) {
+      mismatches.push("Cashfree order ID mismatch");
     }
-    if (razorpayPayment.status !== "captured") {
-      mismatches.push("Payment is not captured");
+    if (payment.payment_status !== "SUCCESS") {
+      mismatches.push("Payment is not successful");
     }
-    if (Number(razorpayPayment.amount) !== expectedAmount) {
+    if (Number(payment.order_amount) !== expectedAmount) {
       mismatches.push("Payment amount does not match order total");
     }
-    if (razorpayPayment.currency !== "INR") {
+    if (payment.payment_currency !== "INR") {
       mismatches.push("Payment currency mismatch");
     }
 
@@ -392,7 +387,7 @@ const verifyRazorpayPayment = async (req, res) => {
       try {
         await markPaymentFailed(order, reason);
       } catch (paymentError) {
-        console.error("RAZORPAY PAYMENT FAILURE RECORD SYNC FAILED:", paymentError);
+        console.error("CASHFREE PAYMENT FAILURE RECORD SYNC FAILED:", paymentError);
       }
 
       return res.status(400).json({
@@ -402,7 +397,7 @@ const verifyRazorpayPayment = async (req, res) => {
     }
 
     // Respect the order state machine: pending -> confirmed is the only valid
-    // route into a paid Razorpay order.
+    // route into a paid Cashfree order.
     if (!order.canTransitionTo("confirmed")) {
       return res.status(400).json({
         success: false,
@@ -413,33 +408,33 @@ const verifyRazorpayPayment = async (req, res) => {
     await order.transitionTo("confirmed", req.user._id);
 
     order.paymentMethod = "upi";
-    order.paymentGateway = "razorpay";
+    order.paymentGateway = "cashfree";
     order.paymentStatus = "paid";
-    order.razorpayOrderId = razorpay_order_id;
-    order.razorpayPaymentId = razorpay_payment_id;
-    order.razorpaySignature = razorpay_signature;
+    order.cashfreeOrderId = cashfreeOrderId;
+    order.cashfreePaymentId = String(payment.cf_payment_id);
+    order.cashfreePaymentStatus = payment.payment_status;
     order.paidAt = new Date();
 
     await order.save();
 
     // Create/update the Payment record so the ledger always reflects the
-    // successful Razorpay payment (idempotent - no duplicates on re-verify).
+    // successful Cashfree payment (idempotent - no duplicates on re-verify).
     try {
       await Payment.ensurePaid({
         order: order._id,
         customer: order.customer || null,
         amount: order.total,
         method: "upi",
-        gateway: "razorpay",
+        gateway: "cashfree",
         collectedBy: order.createdBy,
         gatewayData: {
-          gatewayOrderId: razorpay_order_id,
-          gatewayPaymentId: razorpay_payment_id,
-          gatewaySignature: razorpay_signature,
+          gatewayOrderId: cashfreeOrderId,
+          gatewayPaymentId: String(payment.cf_payment_id),
+          gatewayResponse: payment,
         },
       });
     } catch (paymentError) {
-      console.error("RAZORPAY PAYMENT RECORD SYNC FAILED:", paymentError);
+      console.error("CASHFREE PAYMENT RECORD SYNC FAILED:", paymentError);
     }
 
     // Deduct inventory for UPI payment
@@ -469,8 +464,8 @@ const verifyRazorpayPayment = async (req, res) => {
 };
 
 module.exports = {
-  createRazorpayOrder,
-  verifyRazorpayPayment,
+  createCashfreeOrder,
+  verifyCashfreePayment,
   markPaymentFailed,
   deductInventoryForOrder,
 };

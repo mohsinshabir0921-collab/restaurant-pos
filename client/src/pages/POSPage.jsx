@@ -225,7 +225,7 @@ export default function POSPage() {
   const soundEnabledRef = useRef(soundEnabled);
   const [orderAlerts, setOrderAlerts] = useState([]);
   const audioCtxRef = useRef(null);
-  const razorpayLoadedRef = useRef(false);
+  const cashfreeLoadedRef = useRef(false);
   const orderAlertTimersRef = useRef({});
   const seenOrderIdsRef = useRef(null);
   const newOrderBaselineRef = useRef(false);
@@ -316,21 +316,21 @@ export default function POSPage() {
     };
   }, []);
 
-  const loadRazorpayScript = () => {
+  const loadCashfreeScript = () => {
     return new Promise((resolve) => {
-      if (razorpayLoadedRef.current) {
+      if (cashfreeLoadedRef.current) {
         resolve(true);
         return;
       }
-      if (window.Razorpay) {
-        razorpayLoadedRef.current = true;
+      if (window.Cashfree) {
+        cashfreeLoadedRef.current = true;
         resolve(true);
         return;
       }
       const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
       script.onload = () => {
-        razorpayLoadedRef.current = true;
+        cashfreeLoadedRef.current = true;
         resolve(true);
       };
       script.onerror = () => resolve(false);
@@ -338,46 +338,45 @@ export default function POSPage() {
     });
   };
 
-  const openRazorpayCheckout = async (createdOrder) => {
-    const scriptLoaded = await loadRazorpayScript();
+  const openCashfreeCheckout = async (createdOrder) => {
+    const scriptLoaded = await loadCashfreeScript();
     if (!scriptLoaded) {
-      alert("Razorpay SDK failed to load");
+      alert("Cashfree SDK failed to load");
       return false;
     }
 
     try {
-      const paymentRes = await paymentAPI.createRazorpayOrder(createdOrder._id);
+      const paymentRes = await paymentAPI.createCashfreeOrder(createdOrder._id);
       if (!paymentRes.data.success) {
-        alert(paymentRes.data.message || "Failed to create Razorpay order");
+        alert(paymentRes.data.message || "Failed to create Cashfree order");
         return false;
       }
 
       return await new Promise((resolve) => {
-        const options = {
-          key: paymentRes.data.key,
-          amount: paymentRes.data.amount,
-          currency: paymentRes.data.currency,
-          name: posSettings?.restaurant_name || "Restaurant",
-          description: `Order Payment - ${createdOrder.orderNumber}`,
-          order_id: paymentRes.data.razorpayOrderId,
-          prefill: {
-            name: paymentRes.data.customerName || customerName,
-            contact: paymentRes.data.phone || customerPhone,
-            email: paymentRes.data.email || "",
-          },
-          notes: {
-            appOrderId: createdOrder._id,
-          },
-          theme: {
-            color: "#0f766e",
-          },
-          handler: async function (response) {
+        const cashfree = new window.Cashfree({
+          mode: paymentRes.data.environment === "production" ? "production" : "sandbox",
+        });
+        cashfree
+          .checkout({
+            paymentSessionId: paymentRes.data.paymentSessionId,
+            orderId: paymentRes.data.cashfreeOrderId,
+            redirectTarget: "_modal",
+          })
+          .then(async (result) => {
+            const status = result?.paymentDetails?.paymentStatus;
+            if (status !== "SUCCESS") {
+              alert(
+                result?.paymentDetails?.paymentMessage ||
+                  (status === "CANCELLED" ? "Payment was cancelled" : "Payment failed")
+              );
+              resolve(false);
+              return;
+            }
+
             try {
-              const verifyRes = await paymentAPI.verifyRazorpayPayment({
+              const verifyRes = await paymentAPI.verifyCashfreePayment({
                 orderId: createdOrder._id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
+                cashfreeOrderId: paymentRes.data.cashfreeOrderId,
               });
 
               if (verifyRes.data.success) {
@@ -396,24 +395,15 @@ export default function POSPage() {
               alert("Payment verification failed");
               resolve(false);
             }
-          },
-          modal: {
-            ondismiss: function () {
-              resolve(false);
-            },
-          },
-        };
-
-        const razorpayInstance = new window.Razorpay(options);
-        razorpayInstance.on("payment.failed", function (response) {
-          console.log("RAZORPAY PAYMENT FAILED:", response.error);
-          alert(response.error.description || "Payment failed");
-          resolve(false);
-        });
-        razorpayInstance.open();
+          })
+          .catch((error) => {
+            console.log("CASHFREE CHECKOUT ERROR:", error);
+            alert(error?.message || "Payment was cancelled");
+            resolve(false);
+          });
       });
     } catch (error) {
-      console.log("RAZORPAY CHECKOUT ERROR:", error);
+      console.log("CASHFREE CHECKOUT ERROR:", error);
       alert("Unable to start online payment");
       return false;
     }
@@ -842,7 +832,7 @@ export default function POSPage() {
         markOrderSeen(createdOrder._id);
 
         if (paymentMethod === "upi") {
-          const paymentSuccess = await openRazorpayCheckout(createdOrder);
+          const paymentSuccess = await openCashfreeCheckout(createdOrder);
           if (!paymentSuccess) {
             try {
               await orderAPI.cancel(createdOrder._id, { reason: "Payment not completed" });

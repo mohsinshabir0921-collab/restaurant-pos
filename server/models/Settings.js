@@ -54,7 +54,7 @@ const defaultSettings = [
   { key: "takeaway_enabled", value: true, description: "Allow takeaway orders on the public website", group: "restaurant", isPublic: true },
   { key: "delivery_enabled", value: true, description: "Allow delivery orders on the public website", group: "restaurant", isPublic: true },
   { key: "cash_payment_enabled", value: true, description: "Allow cash/cash-on-delivery payment on the website", group: "restaurant", isPublic: true },
-  { key: "online_payment_enabled", value: true, description: "Allow Razorpay online payments on the website", group: "restaurant", isPublic: true },
+  { key: "online_payment_enabled", value: true, description: "Allow Cashfree online payments on the website", group: "restaurant", isPublic: true },
   { key: "website_enabled", value: true, description: "Enable the public website", group: "restaurant", isPublic: true },
   { key: "instagram_url", value: "", description: "Instagram URL", group: "restaurant", isPublic: true },
   { key: "facebook_url", value: "", description: "Facebook URL", group: "restaurant", isPublic: true },
@@ -76,7 +76,7 @@ const defaultSettings = [
   { key: "sms_enabled", value: false, description: "Enable SMS notifications", group: "notifications" },
   { key: "whatsapp_enabled", value: false, description: "Enable WhatsApp notifications", group: "notifications" },
   { key: "email_enabled", value: false, description: "Enable email notifications", group: "notifications" },
-  { key: "razorpay_key_id", value: process.env.RAZORPAY_KEY_ID || "", description: "Razorpay Key ID for online payments", group: "payment" },
+  { key: "cashfree_client_id", value: process.env.CASHFREE_CLIENT_ID || "", description: "Cashfree Client ID for online payments", group: "payment" },
 ];
 
 settingsSchema.statics.initializeDefaults = async function () {

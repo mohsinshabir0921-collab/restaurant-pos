@@ -2,17 +2,17 @@ const express = require("express");
 const router = express.Router();
 
 const {
-  createRazorpayOrder,
-  verifyRazorpayPayment,
+  createCashfreeOrder,
+  verifyCashfreePayment,
 } = require("../controllers/paymentController");
 
-const { handleRazorpayWebhook } = require("../controllers/webhookController");
+const { handleCashfreeWebhook } = require("../controllers/webhookController");
 
 const { protect } = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
-router.post("/create-order", protect, authorizeRoles("admin", "cashier"), createRazorpayOrder);
-router.post("/verify", protect, authorizeRoles("admin", "cashier"), verifyRazorpayPayment);
-router.post("/webhook", handleRazorpayWebhook);
+router.post("/create-order", protect, authorizeRoles("admin", "cashier"), createCashfreeOrder);
+router.post("/verify", protect, authorizeRoles("admin", "cashier"), verifyCashfreePayment);
+router.post("/webhook", handleCashfreeWebhook);
 
 module.exports = router;

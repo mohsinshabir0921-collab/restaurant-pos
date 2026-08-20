@@ -76,13 +76,13 @@ export default function CheckoutPage() {
   const paymentOptions = useMemo(() => {
     if (effectiveOrderType === "delivery") {
       const options = [];
-      if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Razorpay" });
+      if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Cashfree" });
       if (cashEnabled) options.push({ value: "cod", label: "Cash on Delivery", hint: "Pay in cash when your order arrives" });
       return options;
     }
     const options = [];
     if (cashEnabled) options.push({ value: "cash", label: "Cash at Pickup", hint: "Pay when you collect your order" });
-    if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Razorpay" });
+    if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Cashfree" });
     return options;
   }, [effectiveOrderType, cashEnabled, onlineEnabled]);
 
@@ -290,7 +290,7 @@ export default function CheckoutPage() {
     try {
       const order = await placeOrder({
         payload,
-        razorpayPrefill: { name: customerName, email: customerEmail, phone: customerPhone },
+        prefill: { name: customerName, email: customerEmail, phone: customerPhone },
         restaurantName,
       });
       setLastOrder(order);

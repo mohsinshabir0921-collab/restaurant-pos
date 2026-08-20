@@ -98,7 +98,7 @@ paymentSchema.statics.getByOrder = async function (orderId) {
 // Idempotent single source for a paid ledger entry: creates exactly one
 // "paid" Payment record per order, and only upgrades an existing record -
 // it never creates duplicates or overwrites an already-paid record. Used by
-// cash/card/wallet/split, Razorpay/UPI and COD flows alike so the payment
+// cash/card/wallet/split, Cashfree/UPI and COD flows alike so the payment
 // ledger always matches order.paymentStatus === "paid".
 paymentSchema.statics.ensurePaid = async function ({
   order,

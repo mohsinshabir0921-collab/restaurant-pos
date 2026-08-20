@@ -195,7 +195,7 @@ const orderSchema = new mongoose.Schema(
     },
     paymentGateway: {
       type: String,
-      enum: ["razorpay"],
+      enum: ["cashfree", "razorpay"],
       required: false,
     },
     paymentStatus: {
@@ -219,6 +219,18 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
     razorpaySignature: {
+      type: String,
+      default: null,
+    },
+    cashfreeOrderId: {
+      type: String,
+      default: null,
+    },
+    cashfreePaymentId: {
+      type: String,
+      default: null,
+    },
+    cashfreePaymentStatus: {
       type: String,
       default: null,
     },

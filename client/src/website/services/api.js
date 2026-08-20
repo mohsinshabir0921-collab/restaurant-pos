@@ -24,8 +24,8 @@ export const websiteAPI = {
   getOrderEstimate: (data) => websiteApi.post("/public/order-estimate", data),
   validateCoupon: (params) => websiteApi.get("/public/coupons/validate", { params }),
   createOrder: (data) => websiteApi.post("/public/orders", data),
-  createRazorpayOrder: (orderId) => websiteApi.post("/public/payment/create-order", { orderId }),
-  verifyRazorpayPayment: (data) => websiteApi.post("/public/payment/verify", data),
+  createCashfreeOrder: (orderId) => websiteApi.post("/public/payment/create-order", { orderId }),
+  verifyCashfreePayment: (data) => websiteApi.post("/public/payment/verify", data),
   trackOrder: (orderNumber, phone) =>
     websiteApi.get(`/public/orders/${orderNumber}/track`, { params: { phone } }),
   getRecentOrders: (phone) => websiteApi.get("/public/orders/recent", { params: { phone } }),

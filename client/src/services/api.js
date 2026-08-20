@@ -231,8 +231,8 @@ export const reportAPI = {
 };
 
 export const paymentAPI = {
-  createRazorpayOrder: (orderId) => api.post("/payment/create-order", { orderId }),
-  verifyRazorpayPayment: (data) => api.post("/payment/verify", data),
+  createCashfreeOrder: (orderId) => api.post("/payment/create-order", { orderId }),
+  verifyCashfreePayment: (data) => api.post("/payment/verify", data),
 };
 
 export const inventoryAPI = {

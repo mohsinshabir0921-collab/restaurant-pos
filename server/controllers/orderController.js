@@ -592,7 +592,7 @@ const createOrder = async (req, res) => {
     const isCOD = paymentMethod === "cod" && orderType === "delivery";
     // UPI and COD are never settled at creation: only instant-paid methods
     // (cash/card/wallet) and split payments create paid + confirmed orders.
-    // UPI stays pending until the Razorpay verify/webhook path succeeds.
+    // UPI stays pending until the Cashfree verify/webhook path succeeds.
     const isPaidOnCreate = isInstantPaid || isSplit;
     console.log("Payment check:", { isInstantPaid, isSplit, isCOD, paymentMethod, orderType, isPaidOnCreate });
 

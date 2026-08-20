@@ -2,9 +2,9 @@ const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 
-process.env.RAZORPAY_WEBHOOK_SECRET = "test_webhook_secret";
-process.env.RAZORPAY_KEY_ID = "rzp_test_test_key_id";
-process.env.RAZORPAY_KEY_SECRET = "test_key_secret";
+process.env.CASHFREE_WEBHOOK_SECRET = "test_webhook_secret";
+process.env.CASHFREE_CLIENT_ID = "test_client_id";
+process.env.CASHFREE_CLIENT_SECRET = "test_client_secret";
 
 const SETTINGS_MODEL = require.resolve("../models/Settings");
 const MENU_MODEL = require.resolve("../models/MenuItem");

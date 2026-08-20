@@ -2,9 +2,9 @@ const { test, after } = require("node:test");
 const assert = require("node:assert/strict");
 const mongoose = require("mongoose");
 
-process.env.RAZORPAY_WEBHOOK_SECRET = "test_webhook_secret";
-process.env.RAZORPAY_KEY_ID = "rzp_test_test_key_id";
-process.env.RAZORPAY_KEY_SECRET = "test_key_secret";
+process.env.CASHFREE_WEBHOOK_SECRET = "test_webhook_secret";
+process.env.CASHFREE_CLIENT_ID = "test_client_id";
+process.env.CASHFREE_CLIENT_SECRET = "test_client_secret";
 
 const ORDER_MODEL = require.resolve("../models/Order");
 const USER_MODEL = require.resolve("../models/User");
@@ -805,7 +805,7 @@ test("recent orders response contains only safe customer-facing fields", async (
     customerEmail: "secret@test.com",
     paymentMethod: "upi",
     paymentStatus: "paid",
-    razorpayPaymentId: "pay_secret",
+    cashfreePaymentId: "pay_secret",
     deliveryAddress: { line1: "1 Main St", latitude: 28.6139, longitude: 77.249 },
     total: 354,
     assignedTo: new mongoose.Types.ObjectId(),
@@ -1076,12 +1076,12 @@ test("DeliveryLocation model enforces coordinate ranges and indexes", async () =
   );
 });
 
-test("payment and webhook controllers still export their Razorpay surface unchanged", () => {
+test("payment and webhook controllers still export their Cashfree surface unchanged", () => {
   const store = { orders: [], users: [], locations: [], assignedResult: [], latestLocation: null };
   const { paymentController, webhookController } = freshLoad(store);
-  assert.equal(typeof paymentController.createRazorpayOrder, "function");
-  assert.equal(typeof paymentController.verifyRazorpayPayment, "function");
-  assert.equal(typeof webhookController.handleRazorpayWebhook, "function");
+  assert.equal(typeof paymentController.createCashfreeOrder, "function");
+  assert.equal(typeof paymentController.verifyCashfreePayment, "function");
+  assert.equal(typeof webhookController.handleCashfreeWebhook, "function");
 });
 
 after(() => {

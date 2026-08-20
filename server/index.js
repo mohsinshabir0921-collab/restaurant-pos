@@ -76,7 +76,7 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
-// Razorpay webhooks must be verified against the exact raw body, so the raw
+// Cashfree webhooks must be verified against the exact raw body, so the raw
 // body parser must run before the global JSON parser for this route.
 app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 
