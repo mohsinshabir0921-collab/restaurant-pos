@@ -636,6 +636,45 @@ test("8. browser verification before webhook keeps state consistent", async () =
   assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
 });
 
+test("8b. webhook success after a checkout callback that reported non-SUCCESS confirms the order", async () => {
+  // Scenario: the Cashfree UPI modal callback reported CANCELLED / non-SUCCESS
+  // to the client (after the fix the client does NOT cancel the order on that
+  // signal), and then the PAYMENT_SUCCESS_WEBHOOK arrives. The order must be
+  // settled as paid/confirmed exactly once, idempotently.
+  const stubs = freshLoad();
+  seedInventory(stubs);
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
+  const order = stubs.store.orders[0];
+
+  // The order is still pending after the checkout callback (the client did not
+  // cancel it). The payment was actually captured, so the success webhook
+  // arrives and must settle it.
+  assert.equal(order.paymentStatus, "pending");
+  assert.equal(order.orderStatus, "pending");
+
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
+  const first = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+  assert.equal(first.status, 200);
+
+  assert.equal(order.paymentStatus, "paid");
+  assert.equal(order.orderStatus, "confirmed");
+  assert.equal(order.cashfreePaymentId, "pay_1");
+  assert.equal(stubs.store.deductions.length, 1, "inventory deducted exactly once");
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
+
+  // Idempotent: a second delivery of the same webhook has no duplicate effects.
+  const second = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+  assert.equal(second.status, 200);
+  assert.equal(stubs.store.deductions.length, 1, "inventory deducted exactly once");
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
+});
+
 test("9. repeated browser verification is idempotent", async () => {
   const stubs = freshLoad();
   setupVerifiedFlow(stubs);

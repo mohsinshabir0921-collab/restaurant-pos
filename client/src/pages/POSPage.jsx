@@ -20,6 +20,7 @@ import {
   IconDelivery,
   IconBell,
 } from "../components/icons";
+import { OUTCOME, decidePaymentOutcome } from "../lib/paymentOutcome";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -338,74 +339,84 @@ export default function POSPage() {
     });
   };
 
+  // Opens the Cashfree checkout in a popup modal and returns the server-driven
+  // outcome (OUTCOME.PAID / OUTCOME.FAILED / OUTCOME.PENDING). The modal's
+  // client-side paymentStatus is NOT trusted: for UPI the popup often reports
+  // CANCELLED / NOT_ATTEMPTED even when the payment was captured, so we ALWAYS
+  // reconcile with the server via verifyCashfreePayment and only cancel the
+  // order when the server definitively confirms the payment did not succeed.
   const openCashfreeCheckout = async (createdOrder) => {
     const scriptLoaded = await loadCashfreeScript();
     if (!scriptLoaded) {
       alert("Cashfree SDK failed to load");
-      return false;
+      return OUTCOME.FAILED;
     }
 
     try {
       const paymentRes = await paymentAPI.createCashfreeOrder(createdOrder._id);
       if (!paymentRes.data.success) {
         alert(paymentRes.data.message || "Failed to create Cashfree order");
-        return false;
+        return OUTCOME.FAILED;
       }
 
       return await new Promise((resolve) => {
         const cashfree = new window.Cashfree({
           mode: paymentRes.data.environment === "production" ? "production" : "sandbox",
         });
+
+        const reconcileWithServer = async () => {
+          try {
+            const verifyRes = await paymentAPI.verifyCashfreePayment({
+              orderId: createdOrder._id,
+              cashfreeOrderId: paymentRes.data.cashfreeOrderId,
+            });
+
+            const outcome = decidePaymentOutcome(verifyRes);
+            if (outcome === OUTCOME.PAID) {
+              const verifiedOrder = verifyRes.data.order || createdOrder;
+              setLastOrder(verifiedOrder);
+              fetchOrders(false);
+              if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
+              alert("Payment successful");
+              resolve(OUTCOME.PAID);
+              return;
+            }
+
+            if (outcome === OUTCOME.FAILED) {
+              alert(verifyRes.data.message || "Payment could not be completed");
+              resolve(OUTCOME.FAILED);
+              return;
+            }
+
+            alert(
+              "We could not confirm the payment right now. Your order is being verified and will update automatically."
+            );
+            resolve(OUTCOME.PENDING);
+          } catch (error) {
+            console.log("VERIFY PAYMENT ERROR:", error);
+            alert(
+              "We could not confirm the payment right now. Your order is being verified and will update automatically."
+            );
+            resolve(OUTCOME.PENDING);
+          }
+        };
+
+        // The payment flow has returned (success, failure, popup closed, or a
+        // redirect to a UPI app). The client-side status is not authoritative,
+        // so always reconcile with the server before deciding what to do.
         cashfree
           .checkout({
             paymentSessionId: paymentRes.data.paymentSessionId,
             orderId: paymentRes.data.cashfreeOrderId,
             redirectTarget: "_modal",
           })
-          .then(async (result) => {
-            const status = result?.paymentDetails?.paymentStatus;
-            if (status !== "SUCCESS") {
-              alert(
-                result?.paymentDetails?.paymentMessage ||
-                  (status === "CANCELLED" ? "Payment was cancelled" : "Payment failed")
-              );
-              resolve(false);
-              return;
-            }
-
-            try {
-              const verifyRes = await paymentAPI.verifyCashfreePayment({
-                orderId: createdOrder._id,
-                cashfreeOrderId: paymentRes.data.cashfreeOrderId,
-              });
-
-              if (verifyRes.data.success) {
-                const verifiedOrder = verifyRes.data.order || createdOrder;
-                setLastOrder(verifiedOrder);
-                fetchOrders(false);
-                if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
-                alert("Payment successful");
-                resolve(true);
-              } else {
-                alert(verifyRes.data.message || "Payment verification failed");
-                resolve(false);
-              }
-            } catch (error) {
-              console.log("VERIFY PAYMENT ERROR:", error);
-              alert("Payment verification failed");
-              resolve(false);
-            }
-          })
-          .catch((error) => {
-            console.log("CASHFREE CHECKOUT ERROR:", error);
-            alert(error?.message || "Payment was cancelled");
-            resolve(false);
-          });
+          .then(reconcileWithServer)
+          .catch(() => reconcileWithServer());
       });
     } catch (error) {
       console.log("CASHFREE CHECKOUT ERROR:", error);
       alert("Unable to start online payment");
-      return false;
+      return OUTCOME.FAILED;
     }
   };
 
@@ -832,8 +843,8 @@ export default function POSPage() {
         markOrderSeen(createdOrder._id);
 
         if (paymentMethod === "upi") {
-          const paymentSuccess = await openCashfreeCheckout(createdOrder);
-          if (!paymentSuccess) {
+          const paymentOutcome = await openCashfreeCheckout(createdOrder);
+          if (paymentOutcome === OUTCOME.FAILED) {
             try {
               await orderAPI.cancel(createdOrder._id, { reason: "Payment not completed" });
             } catch (cancelErr) {
@@ -847,6 +858,15 @@ export default function POSPage() {
             alert("Payment not completed. Order cancelled and table released.");
             return;
           }
+          if (paymentOutcome === OUTCOME.PENDING) {
+            // The payment could not be confirmed either way. Do NOT cancel the
+            // order - it stays pending and the webhook will settle it.
+            setError(
+              "We could not confirm your payment. The order is being verified and will update automatically."
+            );
+            return;
+          }
+          // OUTCOME.PAID - fall through to the success flow below.
         }
 
         if (selectedTable) {

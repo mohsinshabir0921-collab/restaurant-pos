@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { websiteAPI } from "../services/api";
+import { OUTCOME, decidePaymentOutcome } from "../../lib/paymentOutcome";
 
 const loadCashfreeScript = () =>
   new Promise((resolve, reject) => {
@@ -73,11 +74,14 @@ export const usePayment = () => {
     }
   }, []);
 
-  // Opens the Cashfree hosted checkout in a popup modal (preserving the old
-  // modal checkout UX). Resolves only through onSuccess / onDismiss so the
-  // caller can decide how to surface cancelled/failed payments.
+  // Opens the Cashfree hosted checkout in a popup modal. The modal's
+  // client-side status is NOT authoritative: for UPI the popup often reports
+  // CANCELLED / NOT_ATTEMPTED even when the payment was captured (the payment
+  // redirects to a UPI app and the popup loses the return context). So this
+  // ALWAYS reconciles with the server via verifyCashfreePayment and only then
+  // invokes onSuccess / onFailure / onPending based on the server's verdict.
   const openCashfree = useCallback(
-    async ({ paymentSessionId, environment, cashfreeOrderId, onSuccess, onDismiss }) => {
+    async ({ paymentSessionId, environment, cashfreeOrderId, orderId, onSuccess, onFailure, onPending }) => {
       if (openedRef.current) return;
       openedRef.current = true;
       try {
@@ -85,28 +89,45 @@ export const usePayment = () => {
         const cashfree = new Cashfree({
           mode: environment === "production" ? "production" : "sandbox",
         });
-        const result = await cashfree.checkout({
-          paymentSessionId,
-          orderId: cashfreeOrderId,
-          redirectTarget: "_modal",
-        });
-        openedRef.current = false;
 
-        const status = result?.paymentDetails?.paymentStatus;
-        if (status === "SUCCESS") {
-          onSuccess?.({
-            cashfreeOrderId: result.orderId || cashfreeOrderId,
-            paymentStatus: status,
+        // The payment flow has returned (success, failure, popup closed, or a
+        // redirect to a UPI app). Ignore the client-side status and reconcile
+        // with the server below.
+        try {
+          await cashfree.checkout({
+            paymentSessionId,
+            orderId: cashfreeOrderId,
+            redirectTarget: "_modal",
           });
-        } else {
-          onDismiss?.(
-            result?.paymentDetails?.paymentMessage ||
-              (status === "CANCELLED" ? "Payment was cancelled" : "Payment failed")
+        } catch (checkoutErr) {
+          console.log("CASHFREE CHECKOUT ERROR:", checkoutErr?.message || checkoutErr);
+        }
+
+        try {
+          const verifyRes = await websiteAPI.verifyCashfreePayment({
+            orderId,
+            cashfreeOrderId,
+          });
+          const outcome = decidePaymentOutcome(verifyRes);
+          if (outcome === OUTCOME.PAID) {
+            onSuccess?.(verifyRes.data.order);
+          } else if (outcome === OUTCOME.FAILED) {
+            onFailure?.(verifyRes.data?.message || "Payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the payment right now. Your order will update automatically when it is verified."
+            );
+          }
+        } catch (verifyErr) {
+          console.log("VERIFY PAYMENT ERROR:", verifyErr);
+          onPending?.(
+            "We could not confirm the payment right now. Your order will update automatically when it is verified."
           );
         }
       } catch (err) {
+        onFailure?.(err?.message || "Payment could not be completed");
+      } finally {
         openedRef.current = false;
-        onDismiss?.(err?.message || "Payment was cancelled");
       }
     },
     []
@@ -120,12 +141,12 @@ export const usePayment = () => {
 // Orchestrates the full order + online payment flow.
 export const useCheckout = () => {
   const { createOrder, clearError: clearOrderError } = useOrder();
-  const { createCashfreeOrder, verifyCashfreePayment, openCashfree, processing, clearError: clearPaymentError } = usePayment();
+  const { createCashfreeOrder, openCashfree, processing, clearError: clearPaymentError } = usePayment();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState(null);
 
   const placeOrder = useCallback(
-    async ({ payload, prefill, restaurantName }) => {
+    async ({ payload }) => {
       setPlacing(true);
       setError(null);
       try {
@@ -133,7 +154,8 @@ export const useCheckout = () => {
         const order = await createOrder(payload);
 
         // 2. For online payment: create the Cashfree order, open checkout and
-        //    only trust the server-side verification result.
+        //    let the server-side verification determine the true outcome. The
+        //    modal callback status is not trusted.
         if (payload.paymentMethod === "upi") {
           const cf = await createCashfreeOrder(order._id);
           const verified = await new Promise((resolve, reject) => {
@@ -141,21 +163,10 @@ export const useCheckout = () => {
               paymentSessionId: cf.paymentSessionId,
               environment: cf.environment,
               cashfreeOrderId: cf.cashfreeOrderId,
-              name: prefill?.name || order.customerName,
-              email: prefill?.email || order.customerEmail,
-              phone: prefill?.phone || order.customerPhone,
-              description: `Order ${order.orderNumber}`,
-              restaurantName,
-              onSuccess: (response) => {
-                verifyCashfreePayment({
-                  orderId: order._id,
-                  cashfreeOrderId: response.cashfreeOrderId,
-                  paymentStatus: response.paymentStatus,
-                })
-                  .then((verifiedOrder) => resolve(verifiedOrder))
-                  .catch((err) => reject(err));
-              },
-              onDismiss: (message) => reject(new Error(message || "Payment was cancelled")),
+              orderId: order._id,
+              onSuccess: (verifiedOrder) => resolve(verifiedOrder),
+              onFailure: (message) => reject(new Error(message || "Payment could not be completed")),
+              onPending: (message) => reject(new Error(message)),
             });
           });
           return verified;
@@ -173,7 +184,7 @@ export const useCheckout = () => {
         setPlacing(false);
       }
     },
-    [createOrder, createCashfreeOrder, verifyCashfreePayment, openCashfree]
+    [createOrder, createCashfreeOrder, openCashfree]
   );
 
   const clearError = useCallback(() => {
