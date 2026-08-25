@@ -210,9 +210,9 @@ router.get("/verify", protect, requireAdmin, async (req, res) => {
         continue;
       }
       for (const s of m.sizes) {
-        const opt = sizeMod.options.find((o) => o.label === s.label);
+        const opt = sizeMod.options.find((o) => o.name === s.label);
         if (!opt) { sizeMismatches.push({ name: m.name, issue: `missing option ${s.label}` }); continue; }
-        const expected = Math.round((s.price - m.price) * 100) / 100;
+        const expected = Math.round((s.price - doc.price) * 100) / 100;
         if (Math.round(opt.price * 100) / 100 !== expected) {
           sizeMismatches.push({ name: m.name, issue: `option ${s.label} price ${opt.price} != ${expected}` });
         }
@@ -235,6 +235,42 @@ router.get("/verify", protect, requireAdmin, async (req, res) => {
   } catch (err) {
     console.error("Migration verify error:", err && err.stack ? err.stack : err);
     res.status(500).json({ success: false, message: "Verify failed", error: err && err.message ? err.message : String(err) });
+  }
+});
+
+// POST /api/migration/cleanup-orders  —  WRITE (gated). Nulls any order line
+// menuItemId that no longer references an existing MenuItem (preserves the
+// denormalized name/price). Used to satisfy referential integrity after the
+// obsolete items are deleted. Requires explicit confirm.
+router.post("/cleanup-orders", protect, requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.confirm) {
+      return res.status(400).json({ success: false, message: "Refusing: 'confirm: true' is required." });
+    }
+    const items = await MenuItem.find({}, { _id: 1 }).lean();
+    const ids = new Set(items.map((i) => String(i._id)));
+    const orders = await Order.find({}).lean();
+    let nulled = 0;
+    for (const o of orders) {
+      let changed = false;
+      const newItems = (o.items || []).map((it) => {
+        const mid = it.menuItemId ? String(it.menuItemId) : null;
+        if (mid && !ids.has(mid)) {
+          changed = true;
+          return { ...it, menuItemId: null };
+        }
+        return it;
+      });
+      if (changed) {
+        await Order.updateOne({ _id: o._id }, { $set: { items: newItems } });
+        nulled += 1;
+      }
+    }
+    res.json({ success: true, ordersUpdated: nulled });
+  } catch (err) {
+    console.error("cleanup error:", err && err.stack ? err.stack : err);
+    res.status(500).json({ success: false, message: "cleanup failed", error: err && err.message ? err.message : String(err) });
   }
 });
 
