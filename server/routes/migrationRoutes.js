@@ -122,8 +122,8 @@ router.get("/inspect", protect, requireAdmin, async (req, res) => {
 
     res.json(response);
   } catch (err) {
-    console.error("Migration inspection error:", err.message);
-    res.status(500).json({ success: false, message: "Inspection failed" });
+    console.error("Migration inspection error:", err && err.stack ? err.stack : err);
+    res.status(500).json({ success: false, message: "Inspection failed", error: err && err.message ? err.message : String(err) });
   }
 });
 
