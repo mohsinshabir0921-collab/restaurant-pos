@@ -44,7 +44,6 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const bannerRoutes = require("./routes/bannerRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const deliveryRoutes = require("./routes/deliveryRoutes");
-const migrationRoutes = require("./routes/migrationRoutes");
 
 const app = express();
 
@@ -123,7 +122,6 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/banners", bannerRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/deliveries", deliveryRoutes);
-app.use("/api/migration", migrationRoutes);
 
 const { notFound, errorHandler } = require("./middleware/errorMiddleware");
 app.use(notFound);
