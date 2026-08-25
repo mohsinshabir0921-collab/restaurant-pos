@@ -29,7 +29,7 @@ export default function CheckoutPage() {
   const navigate = useNavigate();
   const { cartItems, subtotal, isEmpty, unitPrice } = useCart();
   const { orderType, setOrderType, setLastOrder } = useOrder();
-  const { settings, getSetting } = useWebsite();
+  const { settings, getSetting, isOpen } = useWebsite();
   const { notify } = useToast();
   const { placeOrder, placing, error: placeError, clearError: clearPlaceError } = useCheckout();
 
@@ -217,6 +217,7 @@ export default function CheckoutPage() {
   };
 
   const validateForm = () => {
+    if (!isOpen) return "The restaurant is currently closed for orders";
     if (!customerName.trim()) return "Please enter your name";
     if (!customerPhone.trim()) return "Please enter your phone number";
     if (!/^[0-9+\-()\s]{8,15}$/.test(customerPhone.trim())) return "Please enter a valid phone number";
@@ -332,6 +333,21 @@ export default function CheckoutPage() {
       </div>
 
       <div className="container">
+        {!isOpen && (
+          <div
+            role="alert"
+            style={{
+              background: "#3f0d0a",
+              color: "#f4e6d2",
+              padding: "12px 16px",
+              borderRadius: 8,
+              marginBottom: 16,
+              textAlign: "center",
+            }}
+          >
+            The restaurant is currently closed for orders. Please come back during our opening hours.
+          </div>
+        )}
         <form className="checkout-layout" onSubmit={handleSubmit} noValidate>
           <div className="checkout-main">
             <section className="checkout-section">
@@ -675,7 +691,7 @@ export default function CheckoutPage() {
 
             {placeError && <p className="form-error">{placeError}</p>}
 
-            <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={placing || estimateLoading}>
+            <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={placing || estimateLoading || !isOpen}>
               {placing ? "Placing order…" : paymentMethod === "upi" ? "Pay & Place Order" : "Place Order"}
             </button>
             <p className="summary-secure">

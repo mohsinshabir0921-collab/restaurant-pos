@@ -147,7 +147,13 @@ export default function SettingsPage() {
               return (
                 <div key={key} className="setting-field">
                   <label>{getLabel(key)}</label>
-                  {inputType === "checkbox" ? (
+                  {key === "about_content" ? (
+                    <textarea
+                      rows={5}
+                      value={value}
+                      onChange={e => handleChange(key, e.target.value)}
+                    />
+                  ) : inputType === "checkbox" ? (
                     <label className="toggle-switch">
                       <input
                         type="checkbox"

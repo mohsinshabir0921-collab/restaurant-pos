@@ -26,6 +26,27 @@ const parseOpeningHours = (value) => {
   return DEFAULT_OPENING_HOURS;
 };
 
+// Client-side open/closed check used only for display. Mirrors the server
+// enforcement but runs in the visitor's local time (fine for the banner).
+const isRestaurantOpenNow = (hours) => {
+  if (!hours || typeof hours !== "object") return true;
+  const dayKey = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][
+    new Date().getDay()
+  ];
+  const today = hours[dayKey];
+  if (!today || !today.open || !today.close) return true;
+  const toMinutes = (t) => {
+    const [h, m] = String(t).split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  const open = toMinutes(today.open);
+  const close = toMinutes(today.close);
+  if (open === close) return false;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  return nowMin >= open && nowMin < close;
+};
+
 export const WebsiteProvider = ({ children }) => {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
@@ -55,6 +76,7 @@ export const WebsiteProvider = ({ children }) => {
   );
 
   const openingHours = useMemo(() => parseOpeningHours(settings.opening_hours), [settings.opening_hours]);
+  const isOpen = useMemo(() => isRestaurantOpenNow(openingHours), [openingHours]);
 
   const value = useMemo(
     () => ({
@@ -64,9 +86,10 @@ export const WebsiteProvider = ({ children }) => {
       getSetting,
       restaurantName: settings.restaurant_name || "Khyenn Chyenn",
       openingHours,
+      isOpen,
       reload: loadSettings,
     }),
-    [settings, loading, error, getSetting, openingHours, loadSettings]
+    [settings, loading, error, getSetting, openingHours, isOpen, loadSettings]
   );
 
   return <WebsiteContext.Provider value={value}>{children}</WebsiteContext.Provider>;

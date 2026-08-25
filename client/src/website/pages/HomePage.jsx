@@ -12,7 +12,7 @@ import { defaultModifiers } from "../components/common";
 import "../home.css";
 
 export default function HomePage() {
-  const { settings, restaurantName, openingHours, getSetting } = useWebsite();
+  const { settings, restaurantName, openingHours, isOpen, getSetting } = useWebsite();
   const { categories, menuItems, loading } = useMenu();
   const { addToCart } = useCart();
 
@@ -42,6 +42,20 @@ export default function HomePage() {
 
   return (
     <div className="home">
+      {!isOpen && (
+        <div
+          role="alert"
+          style={{
+            background: "#3f0d0a",
+            color: "#f4e6d2",
+            textAlign: "center",
+            padding: "10px 16px",
+            fontSize: "0.95rem",
+          }}
+        >
+          We're currently closed for online orders. You can still browse the menu — ordering reopens during our hours.
+        </div>
+      )}
       <Hero
         restaurantName={restaurantName}
         tagline={tagline}

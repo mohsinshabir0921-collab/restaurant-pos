@@ -52,6 +52,17 @@ const getRestaurantCoordinates = async () => {
   return { latitude: lat, longitude: lng };
 };
 
+// Configurable base/minimum delivery fee. Admins set `delivery_fee` in
+// Settings; it acts as a floor so the final fee is never below this amount,
+// while the distance-based progressive fee still applies for longer distances.
+// A value of 0 (the default) preserves the existing pure distance-based pricing
+// and is not surfaced as a separate "flat fee".
+const getBaseDeliveryFee = async () => {
+  const value = await Settings.getValue("delivery_fee", 0);
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
 // Pure distance + fee calculation for known customer and restaurant
 // coordinates. Kept separate from the validation/loading so it can be shared
 // by the estimate endpoint and reused in tests.
@@ -90,13 +101,19 @@ const computeDeliveryFeeForOrder = async ({ latitude, longitude }) => {
     throw error;
   }
 
-  return computeDeliveryDistanceAndFee(lat, lng, restaurant);
+  const baseFee = await getBaseDeliveryFee();
+  const delivery = computeDeliveryDistanceAndFee(lat, lng, restaurant);
+  return {
+    distanceKm: delivery.distanceKm,
+    deliveryFee: Math.max(baseFee, delivery.deliveryFee),
+  };
 };
 
 module.exports = {
   haversineDistanceKm,
   calculateDeliveryFee,
   getRestaurantCoordinates,
+  getBaseDeliveryFee,
   computeDeliveryDistanceAndFee,
   computeDeliveryFeeForOrder,
   isValidLatitude,

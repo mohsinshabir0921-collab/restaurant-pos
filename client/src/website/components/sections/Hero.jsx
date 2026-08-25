@@ -27,6 +27,17 @@ const heroItem = {
   show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: HERO_EASE } },
 };
 
+const isValidHttpUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export default function Hero({
   restaurantName,
   tagline,
@@ -36,6 +47,8 @@ export default function Hero({
   openingHours,
   orderNote,
 }) {
+  const mediaImage = isValidHttpUrl(heroImage) ? heroImage : null;
+  const mediaVideo = isValidHttpUrl(heroVideo) ? heroVideo : null;
   const heroRef = useRef(null);
   const reduce = useReducedMotion();
 
@@ -53,6 +66,32 @@ export default function Hero({
 
   return (
     <section className="hp-hero" ref={heroRef}>
+      {mediaVideo || mediaImage ? (
+        <motion.div
+          className="hp-hero-media"
+          aria-hidden="true"
+          style={{ position: "absolute", inset: 0, zIndex: 0, y: mediaY, scale: mediaScale }}
+        >
+          {mediaVideo ? (
+            <video
+              className="hp-hero-media-el"
+              src={mediaVideo}
+              autoPlay
+              muted
+              loop
+              playsInline
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          ) : (
+            <img
+              className="hp-hero-media-el"
+              src={mediaImage}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          )}
+        </motion.div>
+      ) : null}
       <div className="hp-hero-scrim" aria-hidden="true" />
       <div className="hp-hero-monogram" aria-hidden="true">K</div>
       <div className="hp-hero-dish" aria-hidden="true">

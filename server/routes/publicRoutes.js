@@ -16,7 +16,9 @@ const {
   getRestaurantCoordinates,
   computeDeliveryDistanceAndFee,
   computeDeliveryFeeForOrder,
+  getBaseDeliveryFee,
 } = require("../utils/delivery");
+const { isRestaurantOpenNow } = require("../utils/openingHours");
 const { handleError } = require("../utils/httpError");
 
 // ---------------------------------------------------------------------------
@@ -167,6 +169,44 @@ const validatePublicOrder = async (req, res, next) => {
       });
     }
 
+    // --- Server-side availability + feature-toggle enforcement ---------------
+    // The frontend already hides disabled options, but these checks are the
+    // authoritative gate so a direct API call cannot bypass a disabled feature.
+    const openingHoursValue = await Settings.getValue("opening_hours", null);
+    if (!isRestaurantOpenNow(openingHoursValue)) {
+      return res.status(403).json({
+        success: false,
+        message: "The restaurant is currently closed for online orders",
+      });
+    }
+
+    const websiteEnabled = await Settings.getValue("website_enabled", true);
+    if (!websiteEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: "Online ordering is currently disabled",
+      });
+    }
+
+    const [deliveryEnabled, takeawayEnabled, cashEnabled, onlineEnabled] = await Promise.all([
+      Settings.getValue("delivery_enabled", true),
+      Settings.getValue("takeaway_enabled", true),
+      Settings.getValue("cash_payment_enabled", true),
+      Settings.getValue("online_payment_enabled", true),
+    ]);
+    if (orderType === "delivery" && !deliveryEnabled) {
+      return res.status(400).json({ success: false, message: "Delivery orders are currently disabled" });
+    }
+    if (orderType === "takeaway" && !takeawayEnabled) {
+      return res.status(400).json({ success: false, message: "Takeaway orders are currently disabled" });
+    }
+    if ((paymentMethod === "cod" || paymentMethod === "cash") && !cashEnabled) {
+      return res.status(400).json({ success: false, message: "Cash payment is currently disabled" });
+    }
+    if (paymentMethod === "upi" && !onlineEnabled) {
+      return res.status(400).json({ success: false, message: "Online payment is currently disabled" });
+    }
+
     const cleanItems = await validateAndBuildItems(req.body.items);
 
     let deliveryFee = 0;
@@ -276,8 +316,9 @@ const getOrderEstimate = async (req, res) => {
         restaurant
       ) {
         const delivery = computeDeliveryDistanceAndFee(lat, lng, restaurant);
+        const baseFee = await getBaseDeliveryFee();
         deliveryDistanceKm = delivery.distanceKm;
-        deliveryFee = delivery.deliveryFee;
+        deliveryFee = Math.max(baseFee, delivery.deliveryFee);
       }
     }
 
