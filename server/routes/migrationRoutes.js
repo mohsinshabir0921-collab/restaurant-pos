@@ -55,7 +55,7 @@ router.get("/inspect", protect, requireAdmin, async (req, res) => {
     oldItems.forEach((it) => (oldNameById[String(it._id)] = it.name));
 
     // Shape a concise, review-friendly mapping (no credentials, no raw docs).
-    const categories = plan.categoryPlan.map((c) => ({
+    const categoryList = plan.categoryPlan.map((c) => ({
       name: c.name,
       action: c.action,
       keepId: c.existingId,
@@ -101,7 +101,7 @@ router.get("/inspect", protect, requireAdmin, async (req, res) => {
         orders: orderCount,
       },
       summary: plan.summary,
-      categories,
+      categories: categoryList,
       items,
       unmatchedInserts,
       recipes: {
