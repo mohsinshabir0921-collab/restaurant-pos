@@ -191,16 +191,22 @@ function buildSizeModifier(item) {
 
 // Normalize a dish name for matching old -> new across the size-variant rename.
 // - lowercases
-// - removes parenthetical tokens (size hints: (R), (M), (Half); and (Veg))
+// - turns parentheticals into spaced inner text: "(Veg)" -> " veg ", "(R)" -> " r "
+// - removes ONLY genuine size tokens (whole words): half/full/regular/large/
+//   small/medium and the single letters r/m/l/xl/h/f
 // - drops the word "pizza" (new veg/non-veg pizza names dropped it, old kept it)
-// - collapses whitespace
-// This is intentionally a best-effort key; the dry-run report surfaces any
-// unmatched items/recipes so a human can review before anything is written.
+// - normalizes "non-veg"/"non veg" to "nonveg" (keeps veg/non-veg DISTINCT)
+// Crucially, the "(Veg)" / inline "Veg" qualifier is PRESERVED so that
+// "Khyenn Chyenn Special" and "Khyenn Chyenn Special (Veg)" never collide.
+// This is a best-effort key; the dry-run report surfaces any unmatched
+// items/recipes so a human can review before anything is written.
 function baseName(name) {
   return String(name || "")
     .toLowerCase()
-    .replace(/\([^)]*\)/g, " ")
+    .replace(/\(([^)]+)\)/g, " $1 ")
+    .replace(/\b(half|full|regular|large|small|medium|r|m|l|xl|h|f)\b/gi, " ")
     .replace(/\bpizza\b/g, " ")
+    .replace(/\bnon[-\s]?veg\b/gi, "nonveg")
     .replace(/\s+/g, " ")
     .trim();
 }
