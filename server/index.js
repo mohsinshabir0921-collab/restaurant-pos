@@ -50,8 +50,9 @@ const app = express();
 app.use(helmet());
 
 // CORS: allow only configured client origins (CLIENT_URL, comma-separated).
-// Defaults to the Vite dev server so local development keeps working.
-const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173")
+// Defaults to the Vite dev server and preview server so local development
+// and local production-build previews (vite preview) keep working.
+const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173,http://localhost:4173")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);

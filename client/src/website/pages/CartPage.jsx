@@ -1,10 +1,11 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import CartContent from "../components/CartContent";
 import Reveal from "../components/Reveal";
 
 export default function CartPage() {
   const { itemCount } = useCart();
+  const navigate = useNavigate();
 
   return (
     <div className="page-container cart-page">
@@ -18,7 +19,7 @@ export default function CartPage() {
       <div className="container">
         <div className="cart-page-layout">
           <Reveal>
-            <CartContent onCheckout={() => {}} />
+            <CartContent onCheckout={() => navigate("/checkout")} />
           </Reveal>
           <Reveal delay={120} className="cart-page-aside">
             <Link to="/checkout" className="btn btn-primary btn-lg btn-block">

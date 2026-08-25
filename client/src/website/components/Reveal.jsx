@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 
-// Scroll-based reveal wrapper. Elements fade/rise in once they enter the
-// viewport. Respects prefers-reduced-motion via CSS (extras stylesheet).
+const EASE = [0.16, 1, 0.3, 1];
+
+// Scroll-based reveal wrapper. Fades/rises content in once on enter.
+// Reduced motion: renders a plain element with no transform/opacity animation.
 export default function Reveal({
   as: Tag = "div",
   children,
@@ -13,6 +16,7 @@ export default function Reveal({
 }) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
+  const reduce = useReducedMotion();
 
   useEffect(() => {
     const el = ref.current;
@@ -36,14 +40,27 @@ export default function Reveal({
     return () => io.disconnect();
   }, [threshold]);
 
+  if (reduce) {
+    const Plain = Tag;
+    return (
+      <Plain ref={ref} className={`reveal ${className}`.trim()} style={style} {...rest}>
+        {children}
+      </Plain>
+    );
+  }
+
+  const MotionTag = motion[Tag] || motion.div;
   return (
-    <Tag
+    <MotionTag
       ref={ref}
       className={`reveal ${visible ? "revealed" : ""} ${className}`.trim()}
-      style={{ transitionDelay: delay ? `${delay}ms` : undefined, ...style }}
+      style={style}
+      initial={{ opacity: 0, y: 24 }}
+      animate={visible ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
+      transition={{ duration: 0.7, ease: EASE, delay: delay / 1000 }}
       {...rest}
     >
       {children}
-    </Tag>
+    </MotionTag>
   );
 }

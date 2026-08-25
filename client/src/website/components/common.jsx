@@ -169,3 +169,117 @@ export function SkeletonCard() {
     </div>
   );
 }
+
+/* --------------------------------------------------------------------------
+   Real food photography audit.
+   A curated allow-list of genuine dish photos, plus an exclusion set of
+   byte-identical / templated images shared across many dishes (so a single
+   photo is never shown under multiple different dish names).
+   -------------------------------------------------------------------------- */
+export const REAL_FOOD_IMAGES = new Set([
+  "blue-curacao-mocktail.webp",
+  "blue-mocktail.webp",
+  "butter-naan.webp",
+  "chicken-biryani.webp",
+  "chicken-chowmein.webp",
+  "chicken-fried-rice.webp",
+  "chicken-kanti.webp",
+  "chicken-karahi.webp",
+  "chicken-roll.webp",
+  "chicken-tikka.webp",
+  "chilli-chicken.webp",
+  "chilli-paneer.webp",
+  "crispy-corn.webp",
+  "crispy-fried-chicken-momos.webp",
+  "crispy-paneer.webp",
+  "cutting-chai.webp",
+  "finger-salad.webp",
+  "fresh-lime-soda.webp",
+  "fried-chicken-momos.webp",
+  "green-apple-mocktail.webp",
+  "green-tea.webp",
+  "honey-chilli-chicken.webp",
+  "honey-chilli-potato.webp",
+  "hot-sauce.webp",
+  "indian-salad.webp",
+  "jeera-rice.webp",
+  "kadhai-paneer-pizza.webp",
+  "kashmiri-kahwa.webp",
+  "ketchup.webp",
+  "lemon-tea.webp",
+  "malai-momos.webp",
+  "masala-chicken.webp",
+  "mattar-mushroom-pizza.webp",
+  "mattar-paneer-pizza.webp",
+  "mayonnaise.webp",
+  "mint-chutney.webp",
+  "onion-gravy.webp",
+  "paneer-butter-masala-pizza.webp",
+  "paneer-curry-pizza.webp",
+  "pink-sauce-pasta.webp",
+  "pizza-toppings.webp",
+  "plain-naan.webp",
+  "plain-rice.webp",
+  "raita.webp",
+  "rumali-roti.webp",
+  "schezwan-chicken-fried-rice.webp",
+  "schezwan-chicken.webp",
+  "schezwan-veg-fried-rice.webp",
+  "schezwan-veg-pizza.webp",
+  "special-veg-pizza.webp",
+  "steamed-chicken-momos.webp",
+  "tandoori-momos.webp",
+  "tawa-roti.webp",
+  "tomato-paneer-pizza.webp",
+  "veg-chowmein.webp",
+  "vegetable-fried-rice.webp",
+  "wazwan-chicken.webp",
+  "white-sauce-pasta.webp",
+]);
+
+export const DUPLICATE_FOOD_IMAGES = new Set([
+  "butter-chicken-pizza.webp",
+  "cheese-pizza.webp",
+  "deluxe-margherita-pizza.webp",
+  "chicken-tikka-pizza.webp",
+  "spicy-paneer-pizza.webp",
+  "margherita-pizza.webp",
+  "roasted-chicken-pizza.webp",
+  "cheese-corn-pizza.webp",
+  "special-chicken-pizza.webp",
+  "blue-curacao-mocktail.webp",
+  "blue-mocktail.webp",
+  "cheese-burst-pizza.webp",
+  "mexican-chicken-pizza.webp",
+]);
+
+const imageSlug = (url = "") => String(url).split("/").pop();
+
+export const hasRealPhoto = (item = {}) => {
+  const slug = imageSlug(item.image);
+  return Boolean(item.image && REAL_FOOD_IMAGES.has(slug) && !DUPLICATE_FOOD_IMAGES.has(slug));
+};
+
+export const categoryName = (item = {}) =>
+  typeof item.category === "string" ? item.category : item.category?.name || "Menu";
+
+export const defaultModifiers = (item = {}) =>
+  (Array.isArray(item.modifiers) ? item.modifiers : [])
+    .map((mod) => {
+      const option = mod.options?.[0];
+      return {
+        name: mod.name,
+        option: option?.name || "Default",
+        price: option ? Number(option.price) || 0 : 0,
+      };
+    })
+    .filter((mod) => mod.name && mod.option);
+
+export const GALLERY = [
+  { src: "/images/menu/chicken-biryani.webp", alt: "Chicken biryani, layered rice and slow-cooked meat", size: "a" },
+  { src: "/images/menu/tandoori-momos.webp", alt: "Tandoori momos, charred and spiced", size: "b" },
+  { src: "/images/menu/honey-chilli-chicken.webp", alt: "Honey chilli chicken, glossy and crisp", size: "c" },
+  { src: "/images/menu/chicken-karahi.webp", alt: "Chicken karahi, simmered in tomatoes and spice", size: "d" },
+  { src: "/images/menu/special-veg-pizza.webp", alt: "Special veg pizza, straight from the oven", size: "e" },
+  { src: "/images/menu/cutting-chai.webp", alt: "Cutting chai, strong and milky", size: "f" },
+];

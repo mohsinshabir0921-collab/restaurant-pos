@@ -54,6 +54,7 @@ export default function Footer({ restaurantName }) {
   return (
     <footer className="site-footer" role="contentinfo">
       <div className="container">
+        <div className="footer-wordmark" aria-hidden="true">{restaurantName}</div>
         <div className="footer-grid">
           <div className="footer-brand">
             <Link to="/" className="footer-logo" aria-label={`${restaurantName} - Home`}>

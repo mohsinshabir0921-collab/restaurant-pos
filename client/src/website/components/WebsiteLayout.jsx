@@ -6,6 +6,7 @@ import AnnouncementBar from "./AnnouncementBar";
 import Header from "./Header";
 import Footer from "./Footer";
 import CartDrawer from "./CartDrawer";
+import "../public-dark.css";
 
 export default function WebsiteLayout() {
   const { restaurantName } = useWebsite();
@@ -14,7 +15,7 @@ export default function WebsiteLayout() {
 
   return (
     <ToastProvider>
-      <div className="website-layout">
+      <div className="website-layout theme-dark">
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>
