@@ -130,7 +130,8 @@ const validateAndBuildItems = async (items) => {
     return {
       menuItemId: dbItem._id,
       name: dbItem.name,
-      price: dbItem.price,
+      // Base price + any selected modifier/size deltas (e.g. Half/Full, R/M/L/XL).
+      price: dbItem.price + modifiers.reduce((sum, m) => sum + (Number(m.price) || 0), 0),
       qty,
       isVeg: dbItem.isVeg,
       taxRate: dbItem.taxRate || 0,

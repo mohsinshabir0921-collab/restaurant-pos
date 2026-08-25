@@ -86,6 +86,33 @@ const slugByName = {
   "kashmiri kehwa": "kashmiri-kahwa",
   "green tea": "green-tea",
   "black coffee": "black-coffee",
+
+  // New menu item names (same dishes as the original menu) -> existing images.
+  "bbq": "bbq-chicken-pizza",
+  "maxican bite": "mexican-chicken-pizza",
+  "peri peri": "peri-peri-chicken-pizza",
+  "khyenn chyenn special": "special-chicken-pizza",
+  "khyenn chyenn special (veg)": "special-veg-pizza",
+  "butter chicken": "butter-chicken-pizza",
+  "tomato paneer": "tomato-paneer-pizza",
+  "paneer butter masala": "paneer-butter-masala-pizza",
+  "kadhai paneer": "kadhai-paneer-pizza",
+  "mattar paneer": "mattar-paneer-pizza",
+  "paneer curry": "paneer-curry-pizza",
+  "mattar mushroom": "mattar-mushroom-pizza",
+  "classic cheese": "cheese-pizza",
+  "kids favourite": "cheese-corn-pizza",
+  "margarita": "margherita-pizza",
+  "schezwan veggie": "schezwan-veg-pizza",
+  "owner special": "special-veg-pizza",
+  "spicy paneer pizza": "spicy-paneer-pizza",
+  "margarita deluxe": "deluxe-margherita-pizza",
+  "toppings": "pizza-toppings",
+  "cheese": "pizza-toppings",
+  "cheese burst": "cheese-burst-pizza",
+  "chicken pulav": "chicken-pulao",
+  "veg pulav": "vegetable-pulao",
+  "zeera rice": "jeera-rice",
 };
 
 const SIZE_TOKEN_RE = /\s*\((half|full|regular|large|r|m|l|xl)\)\s*/gi;

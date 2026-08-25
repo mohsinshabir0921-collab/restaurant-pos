@@ -651,6 +651,38 @@ export default function POSPage() {
     });
   };
 
+  // Size/variant selection for items that define a "Size" modifier.
+  const [sizePick, setSizePick] = useState(null);
+  const handleMenuClick = (item) => {
+    if (item.modifiers?.length > 0) {
+      setSizePick(item);
+      return;
+    }
+    addToCart(item);
+  };
+  const confirmSize = (item, option) => {
+    const delta = Number(option.price) || 0;
+    const sig = JSON.stringify([{ name: "Size", option: option.name }]);
+    setCartItems((prev) => {
+      const idx = prev.findIndex((i) => i.menuItemId === item._id && JSON.stringify(i.modifiers) === sig);
+      if (idx >= 0) {
+        return prev.map((i, ix) => (ix === idx ? { ...i, qty: i.qty + 1 } : i));
+      }
+      return [
+        ...prev,
+        {
+          ...item,
+          menuItemId: item._id,
+          qty: 1,
+          modifiers: [{ name: "Size", option: option.name, price: delta }],
+          notes: "",
+          price: (Number(item.price) || 0) + delta,
+        },
+      ];
+    });
+    setSizePick(null);
+  };
+
   const updateQty = (index, delta) => {
     setCartItems(prev => {
       const newQty = prev[index].qty + delta;
@@ -1087,7 +1119,7 @@ export default function POSPage() {
               ) : (
                 <div className="menu-grid">
                   {filteredMenuItems.map(item => (
-                    <button key={item._id} className="menu-item-card" onClick={() => addToCart(item)}>
+                    <button key={item._id} className="menu-item-card" onClick={() => handleMenuClick(item)}>
                       <div className="item-header">
                         <span className="item-category">{item.category?.name}</span>
                         {!item.isVeg && <span className="non-veg-badge" title="Non-veg"></span>}
@@ -1103,6 +1135,43 @@ export default function POSPage() {
               )}
             </div>
           </aside>
+
+          {sizePick && (
+            <div className="modal-root" style={{ position: "fixed", inset: 0, zIndex: 1000 }}>
+              <div
+                className="modal-backdrop"
+                style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }}
+                onClick={() => setSizePick(null)}
+              />
+              <div
+                className="item-modal"
+                style={{ position: "relative", margin: "12vh auto", maxWidth: 420, background: "#fff", borderRadius: 12, padding: 20, boxShadow: "0 10px 40px rgba(0,0,0,0.25)" }}
+              >
+                <h3 style={{ marginTop: 0 }}>{sizePick.name}</h3>
+                <p style={{ color: "#666", marginTop: 0 }}>Select size</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(sizePick.modifiers?.find((m) => m.name === "Size") || sizePick.modifiers?.[0])?.options?.map((opt) => (
+                    <button
+                      key={opt._id || opt.name}
+                      type="button"
+                      style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #ddd", cursor: "pointer", textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                      onClick={() => confirmSize(sizePick, opt)}
+                    >
+                      <span>{opt.name}</span>
+                      <span>{formatCurrency((Number(sizePick.price) || 0) + (Number(opt.price) || 0))}</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  style={{ marginTop: 14, width: "100%", padding: 10, background: "#eee", border: "none", borderRadius: 8, cursor: "pointer" }}
+                  onClick={() => setSizePick(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           <main className="pos-main">
             <div className="pos-header">
