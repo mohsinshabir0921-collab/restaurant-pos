@@ -57,11 +57,22 @@ const allowedOrigins = (process.env.CLIENT_URL || "http://localhost:5173,http://
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Returns true when the request origin is permitted:
+// - non-browser / server-to-server / same-origin requests (no Origin header)
+// - origins explicitly listed in CLIENT_URL
+// - Cloudflare Pages deployments (e.g. https://<hash>.<project>.pages.dev),
+//   which host the public website and POS frontend.
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (origin.endsWith(".pages.dev")) return true;
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow non-browser requests (curl, server-to-server, same-origin) and configured origins.
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
       return callback(new Error("Not allowed by CORS"));
