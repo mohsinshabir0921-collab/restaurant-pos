@@ -3170,6 +3170,10 @@ ol {
   gap: 10px;
 }
 
+.cart-item-body {
+  min-width: 0;
+}
+
 .cart-item-name {
   font-size: 1rem;
   font-weight: 600;
@@ -5497,5 +5501,122 @@ button.announcement-item:hover .announcement-cta {
 @media (prefers-reduced-motion: reduce) {
   .scroll-feast-progress-fill {
     transform: scaleX(1);
+  }
+}
+
+/* ==========================================================================
+   Mobile responsive pass — appended hardening layer (desktop untouched)
+   These rules only target small screens via max-width media queries and win
+   over earlier rules at equal specificity, guaranteeing zero horizontal
+   scroll across 320–430px. Root causes (e.g. flex children without a
+   shrink floor) are addressed with min-width:0 so text can wrap.
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* Let flex/grid text children shrink and wrap instead of forcing overflow */
+  .cart-item-body,
+  .menu-card-body,
+  .menu-card-name,
+  .menu-card-desc,
+  .summary-item-name,
+  .hp-row-name,
+  .recent-order-number,
+  .detail-name,
+  .confirmation-item-name {
+    min-width: 0;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Cart line meta can be long (modifiers + notes); wrap it on tiny screens
+     rather than clipping via the desktop nowrap ellipsis. */
+  .cart-item-meta {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Checkout total rows: long tax/label copy must wrap */
+  .summary-row dt {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .summary-row dd {
+    overflow-wrap: break-word;
+  }
+
+  /* Payment / order-type option labels wrap safely */
+  .option-label,
+  .payment-option-label,
+  .payment-option-label strong,
+  .payment-option-label small {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  /* Guarantee no horizontal scroll on the public pages (last-resort guard,
+     after the root causes above are fixed). clip keeps position:sticky usable. */
+  .main-content {
+    overflow-x: clip;
+  }
+
+  /* Make sure media never exceeds its container */
+  .detail-media,
+  .item-modal-media,
+  .menu-card,
+  .cart-item-media,
+  .hp-featured-media,
+  .hp-story-figure {
+    max-width: 100%;
+  }
+
+  .detail-media img,
+  .item-modal-img,
+  .hp-featured-img,
+  .hp-row-img,
+  .cart-item-img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Coupon row: keep the apply button reachable and the input shrinkable */
+  .coupon-input-row {
+    flex-wrap: wrap;
+  }
+
+  .coupon-input-row .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Track order header: stack cleanly if it wraps */
+  .track-live-header {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  /* Extra tightening for the 320–360px class */
+  .checkout-section {
+    padding: 18px 14px;
+  }
+
+  .checkout-summary {
+    padding: 18px 14px;
+  }
+
+  .option-card,
+  .payment-option {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .form-field input,
+  .form-field textarea,
+  .notes-input {
+    padding: 13px 13px;
+  }
+
+  .cart-item {
+    padding: 12px;
   }
 }

@@ -1007,4 +1007,72 @@
   }
 }
 
+/* ==========================================================================
+   Mobile responsive pass — appended hardening layer (desktop untouched)
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* Featured hero foot: price + Add button must wrap instead of overflowing */
+  .hp-featured-foot {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  .hp-featured-add {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Hero actions: stack full-width and never force a horizontal scroll */
+  .hp-hero-actions {
+    width: 100%;
+  }
+
+  .hp-hero-actions .btn {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Featured list rows: let the name column shrink so long dish names wrap */
+  .hp-row-body {
+    min-width: 0;
+  }
+
+  .hp-row-name {
+    overflow-wrap: break-word;
+  }
+}
+
+@media (max-width: 400px) {
+  .hp-featured-foot {
+    gap: 10px;
+  }
+}
+
+/* Phone-only hero dish fix: the exploded pizza was sitting too low and felt
+   cramped/cut off at the bottom-right. On phones, center it horizontally,
+   lift it up and scale it down just enough that the full composition fits
+   naturally and stays fully visible (no clipping). Fluid vw/% values keep it
+   balanced across 320–430px. The dish stays behind the hero text (z-index 2
+   vs content z-index 3) so readability is preserved. Tablet (<=900px base
+   rule) and desktop are intentionally untouched. */
+@media (max-width: 480px) {
+  .hp-hero-dish {
+    top: auto;
+    bottom: 14%;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: clamp(200px, 74vw, 320px);
+  }
+}
+
+/* Slightly tighter on the smallest phones so the whole stack clears the
+   viewport edges and the hero top. */
+@media (max-width: 360px) {
+  .hp-hero-dish {
+    bottom: 16%;
+    width: clamp(190px, 72vw, 260px);
+  }
+}
+
 

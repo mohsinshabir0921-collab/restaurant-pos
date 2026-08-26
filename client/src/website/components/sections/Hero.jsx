@@ -106,7 +106,7 @@ export default function Hero({
       >
         <motion.p className="hp-hero-kicker" variants={heroItem}>
           <span className="hp-hero-kicker-rule" />
-          Restaurant · Est. 2026
+          Restaurant · Est. 2020
         </motion.p>
         <motion.p className="hp-hero-brand" variants={heroItem}>
           {restaurantName}

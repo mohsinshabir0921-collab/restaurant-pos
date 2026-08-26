@@ -25,41 +25,31 @@ export default function MenuPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all"); // all | veg | nonveg
 
-  const flattened = useMemo(() => categories.flatMap((c) => c.items || []), [categories]);
-
   const filteredCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
-    let items = flattened;
 
-    if (query) {
-      items = items.filter(
-        (item) =>
-          item.name?.toLowerCase().includes(query) ||
-          item.description?.toLowerCase().includes(query)
-      );
-    }
+    return categories
+      .map((category) => {
+        let items = category.items || [];
 
-    if (filter === "veg") items = items.filter((item) => item.isVeg);
-    if (filter === "nonveg") items = items.filter((item) => !item.isVeg);
+        if (query) {
+          items = items.filter(
+            (item) =>
+              item.name?.toLowerCase().includes(query) ||
+              item.description?.toLowerCase().includes(query)
+          );
+        }
 
-    if (items.length === 0) return [];
+        if (filter === "veg") items = items.filter((item) => item.isVeg);
+        if (filter === "nonveg") items = items.filter((item) => !item.isVeg);
 
-    // If searching/filtering, group by the item's category name.
-    const grouped = categories
-      .map((category) => ({
-        ...category,
-        items: items.filter((item) => {
-          const itemCategory = typeof item.category === "string" ? item.category : item.category?.name || "";
-          return itemCategory === category.name;
-        }),
-      }))
+        return { ...category, items };
+      })
       .filter((category) => category.items.length > 0);
-
-    return grouped;
-  }, [categories, flattened, search, filter]);
+  }, [categories, search, filter]);
 
   const activeCategoryObj =
-    activeCategory && categories.find((c) => c._id === activeCategory);
+    activeCategory && filteredCategories.find((c) => c._id === activeCategory);
 
   const visibleCategories = activeCategoryObj ? [activeCategoryObj] : filteredCategories;
 

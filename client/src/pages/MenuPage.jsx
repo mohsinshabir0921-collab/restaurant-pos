@@ -75,7 +75,14 @@ export default function MenuPage() {
   const filteredMenuItems = useMemo(() => {
     const q = menuSearch.trim().toLowerCase();
     if (!q) return menuItems;
-    return menuItems.filter(item => item.name?.toLowerCase().includes(q));
+    // Word-based prefix search: every typed word must match the start of a
+    // word in the item name (case-insensitive). This avoids noisy substring
+    // matches like a lone "t" hitting every dish.
+    const queryWords = q.split(/[^a-z0-9]+/).filter(Boolean);
+    return menuItems.filter(item => {
+      const nameWords = (item.name || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      return queryWords.every(qw => nameWords.some(nw => nw.startsWith(qw)));
+    });
   }, [menuItems, menuSearch]);
 
   const handleSubmit = async (e) => {
