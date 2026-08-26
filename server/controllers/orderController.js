@@ -12,6 +12,7 @@ const InventoryItem = require("../models/InventoryItem");
 const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
 const { handleError } = require("../utils/httpError");
+const { isPromoEligible } = require("../utils/promo");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
 const thermalPrinter = require("../services/thermalPrinter");
@@ -86,10 +87,16 @@ const calculateServiceCharge = async (subtotal) => {
   return Math.round((subtotal * percent / 100) * 100) / 100;
 };
 
-const applyCoupon = async (code, orderAmount, orderType, customerId) => {
+const applyCoupon = async (code, orderAmount, orderType, customerId, context = "pos") => {
   const coupon = await Coupon.findValidForOrder(code, orderAmount, orderType, customerId);
   if (!coupon) return { discount: 0, coupon: null };
-  
+
+  // Public/online orders must clear the admin-configurable bulk-order promo
+  // floor. In-store (POS) coupons are not subject to this restriction.
+  if (context === "online" && !(await isPromoEligible(orderAmount))) {
+    return { discount: 0, coupon: null };
+  }
+
   const discount = coupon.calculateDiscount(orderAmount);
   return { discount, coupon };
 };
@@ -508,7 +515,8 @@ const createOrder = async (req, res) => {
     let couponDiscount = 0;
     if (couponCode) {
       console.log("Validating coupon:", couponCode);
-      const result = await applyCoupon(couponCode, subtotal, orderType, customer?._id);
+      const couponContext = req.body.source === "online" ? "online" : "pos";
+      const result = await applyCoupon(couponCode, subtotal, orderType, customer?._id, couponContext);
       couponDiscount = result.discount;
       appliedCoupon = result.coupon;
       console.log("Coupon result:", { couponDiscount, appliedCoupon: !!appliedCoupon });

@@ -197,7 +197,7 @@ test("delivery order persists distanceKm, landmark, and deliveryFee", async () =
       city: "Delhi",
       state: "Delhi",
       pincode: "110001",
-      distanceKm: 4.2,
+      distanceKm: 2,
       deliveryFee: 5,
     },
     deliveryFee: 5,
@@ -219,8 +219,8 @@ test("delivery order persists distanceKm, landmark, and deliveryFee", async () =
   const persisted = d.store.lastOrderCreateArgs;
   assert.ok(persisted, "Order.create was invoked");
 
-  assert.equal(persisted.deliveryFee, 42, "server-calculated fee from distanceKm is stored");
-  assert.equal(persisted.deliveryAddress.distanceKm, 4.2, "customer distanceKm is stored");
+  assert.equal(persisted.deliveryFee, 20, "server-calculated fee from distanceKm is stored");
+  assert.equal(persisted.deliveryAddress.distanceKm, 2, "customer distanceKm is stored");
   assert.equal(persisted.deliveryAddress.latitude, undefined, "no latitude is stored");
   assert.equal(persisted.deliveryAddress.longitude, undefined, "no longitude is stored");
   assert.equal(persisted.deliveryAddress.line1, "12B, Rose Villa", "human-readable address is preserved");

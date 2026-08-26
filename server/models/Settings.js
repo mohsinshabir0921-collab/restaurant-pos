@@ -57,6 +57,7 @@ const defaultSettings = [
   { key: "online_payment_enabled", value: true, description: "Allow Cashfree online payments on the website", group: "restaurant", isPublic: true },
   { key: "website_enabled", value: true, description: "Enable the public website", group: "restaurant", isPublic: true },
   { key: "delivery_fee", value: 0, description: "Base/minimum delivery fee (₹). Applied as a floor to the distance-based fee; 0 = pure distance-based pricing", group: "restaurant" },
+  { key: "min_promo_order_value", value: 700, description: "Minimum order value (₹) required to use a promo code on the public website (bulk-order promos)", group: "restaurant" },
   { key: "instagram_url", value: "", description: "Instagram URL", group: "restaurant", isPublic: true },
   { key: "facebook_url", value: "", description: "Facebook URL", group: "restaurant", isPublic: true },
   { key: "twitter_url", value: "", description: "Twitter/X URL", group: "restaurant", isPublic: true },

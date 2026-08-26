@@ -12,7 +12,7 @@ const { validateCoupon } = require("../controllers/couponController");
 const { getPublicActive } = require("../controllers/bannerController");
 const { createCashfreeOrder, verifyCashfreePayment } = require("../controllers/paymentController");
 const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
-const { calculateDeliveryFee, getBaseDeliveryFee } = require("../utils/delivery");
+const { calculateDeliveryFee, getBaseDeliveryFee, getMaxDeliveryKm, MIN_DELIVERY_ORDER_VALUE } = require("../utils/delivery");
 const { isRestaurantOpenNow } = require("../utils/openingHours");
 const { handleError } = require("../utils/httpError");
 
@@ -203,6 +203,19 @@ const validatePublicOrder = async (req, res, next) => {
     }
 
     const cleanItems = await validateAndBuildItems(req.body.items);
+    const subtotal = cleanItems.reduce((sum, item) => sum + item.price * item.qty, 0);
+
+    // Apply any promo code up front so delivery eligibility can use the final
+    // payable order value (after discount, before delivery fee). The shared
+    // createOrder controller re-applies the coupon, so this is purely for
+    // validation gating on the public website.
+    let couponDiscount = 0;
+    const couponCode = req.body.couponCode;
+    if (couponCode && String(couponCode).trim()) {
+      const couponResult = await applyCoupon(String(couponCode).trim(), subtotal, orderType, null, "online");
+      couponDiscount = couponResult.discount;
+    }
+    const finalOrderValue = subtotal - couponDiscount;
 
     let deliveryFee = 0;
     let deliveryDistanceKm = 0;
@@ -233,6 +246,22 @@ const validatePublicOrder = async (req, res, next) => {
         return res.status(400).json({
           success: false,
           message: "Delivery distance (km) is required",
+        });
+      }
+      // Delivery eligibility is gated on the final payable order value (after
+      // discount, before delivery fee). We never silently clamp the distance;
+      // instead we reject with a clear instruction to the customer.
+      if (finalOrderValue < MIN_DELIVERY_ORDER_VALUE) {
+        return res.status(400).json({
+          success: false,
+          message: `Delivery requires a minimum order value of ₹${MIN_DELIVERY_ORDER_VALUE}`,
+        });
+      }
+      const maxKm = getMaxDeliveryKm(finalOrderValue);
+      if (distanceKm > maxKm) {
+        return res.status(400).json({
+          success: false,
+          message: `Your order value allows delivery within ${maxKm} km. Please add more items or choose a nearer delivery address.`,
         });
       }
       const baseFee = await getBaseDeliveryFee();
@@ -282,7 +311,7 @@ const getOrderEstimate = async (req, res) => {
     let couponDiscount = 0;
     let coupon = null;
     if (couponCode && String(couponCode).trim()) {
-      const result = await applyCoupon(String(couponCode).trim(), subtotal, orderType, null);
+      const result = await applyCoupon(String(couponCode).trim(), subtotal, orderType, null, "online");
       couponDiscount = result.discount;
       coupon = result.coupon;
     }
@@ -303,6 +332,20 @@ const getOrderEstimate = async (req, res) => {
     if (orderType === "delivery") {
       const distanceKm = Number(deliveryAddress?.distanceKm);
       if (Number.isFinite(distanceKm) && distanceKm > 0) {
+        const finalOrderValue = subtotal - couponDiscount;
+        if (finalOrderValue < MIN_DELIVERY_ORDER_VALUE) {
+          return res.status(400).json({
+            success: false,
+            message: `Delivery requires a minimum order value of ₹${MIN_DELIVERY_ORDER_VALUE}`,
+          });
+        }
+        const maxKm = getMaxDeliveryKm(finalOrderValue);
+        if (distanceKm > maxKm) {
+          return res.status(400).json({
+            success: false,
+            message: `Your order value allows delivery within ${maxKm} km. Please add more items or choose a nearer delivery address.`,
+          });
+        }
         const baseFee = await getBaseDeliveryFee();
         deliveryDistanceKm = distanceKm;
         deliveryFee = Math.max(baseFee, calculateDeliveryFee(distanceKm));
@@ -343,7 +386,12 @@ router.get("/orders/recent", getPublicRecentOrders);
 router.get("/orders/:orderNumber/track", getPublicOrderTracking);
 router.post("/order-estimate", getOrderEstimate);
 router.get("/banners", getPublicActive);
-router.get("/coupons/validate", validateCoupon);
+router.get("/coupons/validate", (req, res, next) => {
+  // Public website promo validation is subject to the bulk-order promo floor.
+  req.query = req.query || {};
+  req.query.context = "online";
+  return validateCoupon(req, res);
+});
 router.post("/payment/create-order", attachWebsiteUser, createCashfreeOrder);
 router.post("/payment/verify", attachWebsiteUser, verifyCashfreePayment);
 

@@ -85,7 +85,7 @@ const getCouponById = async (req, res) => {
 
 const validateCoupon = async (req, res) => {
   try {
-    const { code, orderAmount, orderType, customerId } = req.query;
+    const { code, orderAmount, orderType, customerId, context } = req.query;
 
     if (!code) {
       return res.status(400).json({
@@ -94,7 +94,13 @@ const validateCoupon = async (req, res) => {
       });
     }
 
-    const coupon = await Coupon.findValidForOrder(code, orderAmount || 0, orderType || "dinein", customerId);
+    const coupon = await Coupon.findValidForOrder(
+      code,
+      orderAmount || 0,
+      orderType || "dinein",
+      customerId,
+      context || "pos"
+    );
 
     if (!coupon) {
       return res.status(404).json({
