@@ -1,0 +1,8 @@
+/*
+  X-Robots-Tag: index, follow
+
+/website/*
+  X-Robots-Tag: index, follow
+
+/website
+  X-Robots-Tag: index, follow
