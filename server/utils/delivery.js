@@ -1,15 +1,17 @@
 const Settings = require("../models/Settings");
 
-// Progressive website delivery pricing:
-//   First 5 km: ₹10/km, then ₹15/km beyond (progressive).
-//   3 km = 30, 5 km = 50, 6 km = 65, 8 km = 95, 10 km = 125.
-// The absolute distance is capped at MAX_DELIVERY_KM (10 km).
+// Public-website delivery pricing (flat banded fee by distance):
+//   0–4 km    → ₹10
+//   >4–10 km  → ₹15
+//   >10 km    → never charged here; the distance-eligibility rules reject it.
+// Distances above MAX_DELIVERY_KM (10 km) are not billed — they are blocked
+// before an order can be placed. There is no fixed ₹50 charge.
 const calculateDeliveryFee = (distanceKm) => {
   const km = Number(distanceKm);
   if (!Number.isFinite(km) || km <= 0) return 0;
-  const capped = Math.min(km, MAX_DELIVERY_KM);
-  const fee = Math.min(capped, 5) * 10 + Math.max(0, capped - 5) * 15;
-  return Math.round(fee);
+  if (km <= 4) return 10;
+  if (km <= MAX_DELIVERY_KM) return 15;
+  return 0;
 };
 
 // Minimum order value (after discounts, before delivery fee) required to be

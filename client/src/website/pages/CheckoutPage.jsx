@@ -19,12 +19,12 @@ const toDateInput = (date) => {
 
 const addMinutes = (date, minutes) => new Date(date.getTime() + minutes * 60000);
 
-// Progressive delivery rate schedule published in the UI (first 5 km ₹10/km,
-// then ₹15/km). The server is the single source of truth for the final fee;
-// the customer supplies the delivery distance in km and these constants only
-// render the published rate schedule as a hint.
-const DELIVERY_RATE_FIRST_5_KM = 10;
-const DELIVERY_RATE_AFTER_5_KM = 15;
+// Flat banded delivery fee published in the UI (₹10 up to 4 km, then ₹15 up
+// to 10 km). The server is the single source of truth for the final fee; the
+// customer supplies the delivery distance in km. These constants render the
+// published rate schedule as a hint.
+const DELIVERY_RATE_FIRST_KM = 10;
+const DELIVERY_RATE_AFTER_4_KM = 15;
 
 // Client-side fallback used only when the authoritative server estimate has
 // not yet loaded. The server remains the source of truth for the final fee;
@@ -547,7 +547,7 @@ export default function CheckoutPage() {
                   </div>
                 </div>
                   <p className="field-hint">
-                    Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond.
+                    Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_KM)} up to 4 km, then {formatPrice(DELIVERY_RATE_AFTER_4_KM)} up to 10 km.
                   </p>
                   {deliveryDistanceCheck && !deliveryDistanceCheck.valid && (
                     <p className="field-error" role="alert">

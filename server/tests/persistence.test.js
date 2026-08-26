@@ -219,7 +219,7 @@ test("delivery order persists distanceKm, landmark, and deliveryFee", async () =
   const persisted = d.store.lastOrderCreateArgs;
   assert.ok(persisted, "Order.create was invoked");
 
-  assert.equal(persisted.deliveryFee, 20, "server-calculated fee from distanceKm is stored");
+  assert.equal(persisted.deliveryFee, 10, "server-calculated fee from distanceKm is stored");
   assert.equal(persisted.deliveryAddress.distanceKm, 2, "customer distanceKm is stored");
   assert.equal(persisted.deliveryAddress.latitude, undefined, "no latitude is stored");
   assert.equal(persisted.deliveryAddress.longitude, undefined, "no longitude is stored");

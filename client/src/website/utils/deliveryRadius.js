@@ -14,14 +14,17 @@ export const MIN_DELIVERY_ORDER_VALUE = 200;
 // Absolute maximum delivery radius, regardless of order value.
 export const MAX_DELIVERY_KM = 10;
 
-// Progressive delivery fee (₹10/km for the first 5 km, then ₹15/km beyond),
-// mirroring the backend's calculateDeliveryFee. Capped at MAX_DELIVERY_KM.
-//   1 km = ₹10, 5 km = ₹50, 6 km = ₹65, 8 km = ₹95, 10 km = ₹125.
+// Flat banded delivery fee by distance, mirroring the backend's
+// calculateDeliveryFee. There is no per-km progressive rate and no fixed ₹50.
+//   0–4 km    → ₹10
+//   >4–10 km  → ₹15
+//   >10 km    → never charged (rejected by the distance-eligibility rules).
 export const calculateDeliveryFee = (distanceKm) => {
   const km = Number(distanceKm);
   if (!Number.isFinite(km) || km <= 0) return 0;
-  const capped = Math.min(km, MAX_DELIVERY_KM);
-  return Math.round(Math.min(capped, 5) * 10 + Math.max(0, capped - 5) * 15);
+  if (km <= 4) return 10;
+  if (km <= MAX_DELIVERY_KM) return 15;
+  return 0;
 };
 
 // Maximum allowed delivery radius (km) for a given final payable order value

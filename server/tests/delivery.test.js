@@ -134,26 +134,34 @@ const makeRes = () => {
 // Distance + fee primitives
 // ---------------------------------------------------------------------------
 
-test("delivery fee follows the progressive schedule unchanged", () => {
+test("delivery fee uses the flat banded schedule", () => {
   const { delivery } = freshLoad();
-  assert.equal(delivery.calculateDeliveryFee(3), 30);
-  assert.equal(delivery.calculateDeliveryFee(5), 50);
-  assert.equal(delivery.calculateDeliveryFee(6), 65);
-  assert.equal(delivery.calculateDeliveryFee(8), 95);
-  assert.equal(delivery.calculateDeliveryFee(10), 125);
+  // 0–4 km → ₹10
   assert.equal(delivery.calculateDeliveryFee(0), 0);
   assert.equal(delivery.calculateDeliveryFee(-1), 0);
-  assert.equal(delivery.calculateDeliveryFee("4"), 40);
+  assert.equal(delivery.calculateDeliveryFee("4"), 10);
+  assert.equal(delivery.calculateDeliveryFee(2), 10);
+  assert.equal(delivery.calculateDeliveryFee(3), 10);
+  assert.equal(delivery.calculateDeliveryFee(4), 10);
+  // >4–10 km → ₹15
+  assert.equal(delivery.calculateDeliveryFee(4.1), 15);
+  assert.equal(delivery.calculateDeliveryFee(5), 15);
+  assert.equal(delivery.calculateDeliveryFee(6), 15);
+  assert.equal(delivery.calculateDeliveryFee(8), 15);
+  assert.equal(delivery.calculateDeliveryFee(10), 15);
+  // >10 km is never charged (rejected by distance-eligibility rules).
+  assert.equal(delivery.calculateDeliveryFee(10.1), 0);
+  assert.equal(delivery.calculateDeliveryFee(68), 0);
 });
 
 test("base delivery fee acts as a floor on the distance-based fee", async () => {
   const d = freshLoad();
   d.store.settings = { delivery_fee: 50 };
   assert.equal(await d.delivery.getBaseDeliveryFee(), 50);
-  // 3 km → ₹30 but the base fee of ₹50 wins.
+  // 3 km → ₹10 but the base fee of ₹50 wins.
   assert.equal(Math.max(50, d.delivery.calculateDeliveryFee(3)), 50);
-  // 8 km → ₹95, above the ₹50 floor.
-  assert.equal(Math.max(50, d.delivery.calculateDeliveryFee(8)), 95);
+  // 8 km → ₹15, still below the ₹50 floor, so the floor wins.
+  assert.equal(Math.max(50, d.delivery.calculateDeliveryFee(8)), 50);
 });
 
 test("getBaseDeliveryFee defaults to 0 (pure distance-based pricing)", async () => {
@@ -193,7 +201,7 @@ test("delivery order uses the customer-supplied distanceKm for fee and distance"
   });
 
   assert.equal(nexted, true, "valid delivery order passes validation");
-  assert.equal(req.body.deliveryFee, 20, "fee is recomputed from distanceKm (2 km = ₹20)");
+  assert.equal(req.body.deliveryFee, 10, "fee is recomputed from distanceKm (2 km = ₹10)");
   assert.equal(req.body.deliveryAddress.distanceKm, 2, "distanceKm is preserved");
   assert.equal(req.body.deliveryDistanceKm, 2);
   assert.equal(req.body.deliveryAddress.latitude, undefined, "no latitude is stored");
@@ -350,7 +358,7 @@ test("estimate returns fee and distance from the supplied distanceKm", async () 
   await getOrderEstimate(req, res);
 
   assert.equal(res._status, 200);
-  assert.equal(res._body.estimate.deliveryFee, 20, "2 km → ₹20");
+  assert.equal(res._body.estimate.deliveryFee, 10, "2 km → ₹10");
   assert.equal(res._body.estimate.deliveryDistanceKm, 2);
 });
 

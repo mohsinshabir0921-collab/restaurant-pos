@@ -70,19 +70,25 @@ test("radius table boundaries", () => {
   assert.equal(getMaxDeliveryKm(2000), MAX_DELIVERY_KM);
 });
 
-// --- Fee formula (unchanged schedule, capped at 10 km) ---
+// --- Fee formula (flat banded: ₹10 up to 4 km, ₹15 up to 10 km) ---
 
 test("delivery fee schedule", () => {
+  // 0–4 km → ₹10
   assert.equal(calculateDeliveryFee(1), 10);
-  assert.equal(calculateDeliveryFee(5), 50);
-  assert.equal(calculateDeliveryFee(6), 65);
-  assert.equal(calculateDeliveryFee(8), 95);
-  assert.equal(calculateDeliveryFee(10), 125);
+  assert.equal(calculateDeliveryFee(3), 10);
+  assert.equal(calculateDeliveryFee(4), 10);
+  // >4–10 km → ₹15
+  assert.equal(calculateDeliveryFee(4.1), 15);
+  assert.equal(calculateDeliveryFee(5), 15);
+  assert.equal(calculateDeliveryFee(6), 15);
+  assert.equal(calculateDeliveryFee(8), 15);
+  assert.equal(calculateDeliveryFee(10), 15);
 });
 
-test("delivery fee is capped at the absolute 10 km radius", () => {
-  assert.equal(calculateDeliveryFee(11), 125);
-  assert.equal(calculateDeliveryFee(68), 125);
+test("delivery fee is never a fixed ₹50 and is zero beyond the 10 km cap", () => {
+  // No distance yields a fixed ₹50; beyond the cap the fee is 0 (rejected).
+  assert.equal(calculateDeliveryFee(11), 0);
+  assert.equal(calculateDeliveryFee(68), 0);
 });
 
 test("non-positive distances yield zero fee", () => {
@@ -90,3 +96,23 @@ test("non-positive distances yield zero fee", () => {
   assert.equal(calculateDeliveryFee(-5), 0);
   assert.equal(calculateDeliveryFee("abc"), 0);
 });
+
+test("expected checkout outcomes: fee combined with distance restriction", () => {
+  // ₹480 + 3 km → ₹10
+  assert.equal(getDeliveryDistanceValidation(480, 3).valid, true);
+  assert.equal(calculateDeliveryFee(3), 10);
+  // ₹480 + 4 km → rejected (max 3 km)
+  assert.equal(getDeliveryDistanceValidation(480, 4).valid, false);
+  // ₹1100 + 4 km → ₹10
+  assert.equal(getDeliveryDistanceValidation(1100, 4).valid, true);
+  assert.equal(calculateDeliveryFee(4), 10);
+  // ₹1100 + 5 km → ₹15
+  assert.equal(getDeliveryDistanceValidation(1100, 5).valid, true);
+  assert.equal(calculateDeliveryFee(5), 15);
+  // ₹1100 + 10 km → ₹15
+  assert.equal(getDeliveryDistanceValidation(1100, 10).valid, true);
+  assert.equal(calculateDeliveryFee(10), 15);
+  // ₹1100 + 10.1 km → rejected (cap 10 km)
+  assert.equal(getDeliveryDistanceValidation(1100, 10.1).valid, false);
+});
+
