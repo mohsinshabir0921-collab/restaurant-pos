@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { customerAPI } from "../services/api";
+import SearchBox from "../components/SearchBox";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -32,8 +33,8 @@ export default function CustomersPage() {
     fetchCustomers();
   }, [page, search]);
 
-  const handleSearch = (e) => {
-    setSearch(e.target.value);
+  const handleSearch = (val) => {
+    setSearch(typeof val === "string" ? val : val.target.value);
     setPage(1);
   };
 
@@ -74,14 +75,12 @@ export default function CustomersPage() {
     <div className="customers-page">
       <div className="page-header">
         <h1>Customer Management</h1>
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Search by name, phone, email..."
-            value={search}
-            onChange={handleSearch}
-          />
-        </div>
+        <SearchBox
+          value={search}
+          onChange={handleSearch}
+          placeholder="Search by name, phone, email…"
+          ariaLabel="Search customers"
+        />
       </div>
 
       {error && <div className="toast error">{error}</div>}
@@ -101,23 +100,27 @@ export default function CustomersPage() {
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody>
-            {customers.map(customer => (
-              <tr key={customer._id}>
-                <td>{customer.name}</td>
-                <td>{customer.phone}</td>
-                <td>{customer.email || "-"}</td>
-                <td>{customer.visitCount}</td>
-                <td>{formatCurrency(customer.totalSpent)}</td>
-                <td>{customer.loyaltyPoints}</td>
-                <td><span className={`tier-badge ${customer.loyaltyTier}`}>{customer.loyaltyTier}</span></td>
-                <td>{customer.lastVisit ? new Date(customer.lastVisit).toLocaleDateString() : "Never"}</td>
-                <td>
-                  <button className="btn btn-sm btn-secondary" onClick={() => viewCustomer(customer._id)}>View</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+              <tbody>
+                {customers.length === 0 ? (
+                  <tr><td colSpan={9} className="no-results">No customers found.</td></tr>
+                ) : (
+                  customers.map(customer => (
+                  <tr key={customer._id}>
+                    <td>{customer.name}</td>
+                    <td>{customer.phone}</td>
+                    <td>{customer.email || "-"}</td>
+                    <td>{customer.visitCount}</td>
+                    <td>{formatCurrency(customer.totalSpent)}</td>
+                    <td>{customer.loyaltyPoints}</td>
+                    <td><span className={`tier-badge ${customer.loyaltyTier}`}>{customer.loyaltyTier}</span></td>
+                    <td>{customer.lastVisit ? new Date(customer.lastVisit).toLocaleDateString() : "Never"}</td>
+                    <td>
+                      <button className="btn btn-sm btn-secondary" onClick={() => viewCustomer(customer._id)}>View</button>
+                    </td>
+                  </tr>
+                  ))
+                )}
+              </tbody>
         </table>
       </div>
 

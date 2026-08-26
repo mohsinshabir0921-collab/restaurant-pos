@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { inventoryAPI } from "../services/api";
+import SearchBox from "../components/SearchBox";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -112,7 +113,12 @@ export default function InventoryPage() {
       {error && <div className="toast error">{error}</div>}
 
       <div className="filters">
-        <input type="text" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+        <SearchBox
+          value={search}
+          onChange={setSearch}
+          placeholder="Search inventory…"
+          ariaLabel="Search inventory"
+        />
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
           <option value="">All Categories</option>
           {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -125,34 +131,38 @@ export default function InventoryPage() {
           <thead>
             <tr><th>Name</th><th>SKU</th><th>Category</th><th>Unit</th><th>Stock</th><th>Min/Reorder</th><th>Cost/Unit</th><th>Value</th><th>Status</th><th>Actions</th></tr>
           </thead>
-          <tbody>
-            {items.map(item => (
-              <tr key={item._id} className={item.isOutOfStock ? "out-stock" : item.isLowStock ? "low-stock" : ""}>
-                <td><strong>{item.name}</strong></td>
-                <td>{item.sku || "-"}</td>
-                <td><span className="category-badge">{item.category}</span></td>
-                <td>{item.unit}</td>
-                <td>{item.currentStock} {item.unit}</td>
-                <td>{item.minStock} / {item.reorderLevel}</td>
-                <td>{formatCurrency(item.costPerUnit)}</td>
-                <td>{formatCurrency(item.stockValue)}</td>
-                <td>
-                  {item.isOutOfStock && <span className="status-badge out">Out of Stock</span>}
-                  {item.isLowStock && !item.isOutOfStock && <span className="status-badge low">Low Stock</span>}
-                  {!item.isLowStock && <span className="status-badge ok">OK</span>}
-                </td>
-                <td>
-                  <button className="btn btn-sm btn-secondary" onClick={() => openModal(item)}>Edit</button>
-                  <button className="btn btn-sm btn-info" onClick={() => {
-                    const qty = prompt("Adjust quantity (+/-):");
-                    const reason = prompt("Reason:");
-                    if (qty) handleAdjustStock(item, Number(qty), reason || "Manual adjustment");
-                  }}>Adjust</button>
-                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(item._id)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr><td colSpan={10} className="no-results">No inventory items found.</td></tr>
+                ) :
+                  items.map(item => (
+                  <tr key={item._id} className={item.isOutOfStock ? "out-stock" : item.isLowStock ? "low-stock" : ""}>
+                    <td><strong>{item.name}</strong></td>
+                    <td>{item.sku || "-"}</td>
+                    <td><span className="category-badge">{item.category}</span></td>
+                    <td>{item.unit}</td>
+                    <td>{item.currentStock} {item.unit}</td>
+                    <td>{item.minStock} / {item.reorderLevel}</td>
+                    <td>{formatCurrency(item.costPerUnit)}</td>
+                    <td>{formatCurrency(item.stockValue)}</td>
+                    <td>
+                      {item.isOutOfStock && <span className="status-badge out">Out of Stock</span>}
+                      {item.isLowStock && !item.isOutOfStock && <span className="status-badge low">Low Stock</span>}
+                      {!item.isLowStock && <span className="status-badge ok">OK</span>}
+                    </td>
+                    <td>
+                      <button className="btn btn-sm btn-secondary" onClick={() => openModal(item)}>Edit</button>
+                      <button className="btn btn-sm btn-info" onClick={() => {
+                        const qty = prompt("Adjust quantity (+/-):");
+                        const reason = prompt("Reason:");
+                        if (qty) handleAdjustStock(item, Number(qty), reason || "Manual adjustment");
+                      }}>Adjust</button>
+                      <button className="btn btn-sm btn-danger" onClick={() => handleDelete(item._id)}>Delete</button>
+                    </td>
+                  </tr>
+                  ))
+              }
+              </tbody>
         </table>
       </div>
 

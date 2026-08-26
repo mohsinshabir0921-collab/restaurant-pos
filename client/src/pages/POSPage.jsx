@@ -21,6 +21,7 @@ import {
   IconBell,
 } from "../components/icons";
 import { OUTCOME, decidePaymentOutcome } from "../lib/paymentOutcome";
+import SearchBox from "../components/SearchBox";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -185,6 +186,8 @@ export default function POSPage() {
   const [allCategories, setAllCategories] = useState([]);
   const [tables, setTables] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef(null);
   const [selectedTable, setSelectedTable] = useState(null);
 
   const [cartItems, setCartItems] = useState([]);
@@ -211,6 +214,7 @@ export default function POSPage() {
   const [pickupTime, setPickupTime] = useState("");
 
   const [orders, setOrders] = useState([]);
+  const [orderSearch, setOrderSearch] = useState("");
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [kitchenFilter, setKitchenFilter] = useState("active");
   const [lastOrder, setLastOrder] = useState(null);
@@ -593,6 +597,22 @@ export default function POSPage() {
     return () => window.removeEventListener("afterprint", clearPrint);
   }, []);
 
+  // Press "/" to focus the menu search, unless the user is already typing.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "/") return;
+      const el = document.activeElement;
+      const tag = el?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || el?.isContentEditable) return;
+      if (searchInputRef.current) {
+        e.preventDefault();
+        searchInputRef.current.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     if (printOrder) {
       const timer = setTimeout(() => window.print(), 150);
@@ -620,9 +640,27 @@ export default function POSPage() {
   }, [isKitchen]);
 
   const filteredMenuItems = useMemo(() => {
-    if (selectedCategory === "All") return menuItems;
-    return menuItems.filter(item => item.category?.name === selectedCategory);
-  }, [menuItems, selectedCategory]);
+    const byCategory =
+      selectedCategory === "All"
+        ? menuItems
+        : menuItems.filter(item => item.category?.name === selectedCategory);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return byCategory;
+    return byCategory.filter(item => item.name?.toLowerCase().includes(q));
+  }, [menuItems, selectedCategory, searchQuery]);
+
+  const filteredOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter(o =>
+      o.orderNumber?.toLowerCase().includes(q) ||
+      o.customerName?.toLowerCase().includes(q) ||
+      o.orderType?.toLowerCase().includes(q) ||
+      (o.tableNo != null && String(o.tableNo).toLowerCase().includes(q)) ||
+      o.paymentMethod?.toLowerCase().includes(q) ||
+      o.orderStatus?.toLowerCase().includes(q)
+    );
+  }, [orders, orderSearch]);
 
   const categoryList = useMemo(() => {
     // Build the selector from ALL active categories (so newly created / empty
@@ -1095,6 +1133,15 @@ export default function POSPage() {
               <span className="pos-menu-count">{filteredMenuItems.length} items</span>
             </div>
             <div className="sidebar-section">
+              <SearchBox
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search dishes…  (press /)"
+                inputRef={searchInputRef}
+                ariaLabel="Search menu"
+              />
+            </div>
+            <div className="sidebar-section">
               <div className="category-tabs">
                 {categoryList.map(cat => (
                   <button
@@ -1113,8 +1160,17 @@ export default function POSPage() {
               ) : filteredMenuItems.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-state-icon">🍽️</div>
-                  <h3 className="empty-state-title">No items</h3>
-                  <p className="empty-state-description">No menu items in this category.</p>
+                  {searchQuery.trim() ? (
+                    <>
+                      <h3 className="empty-state-title">No items found</h3>
+                      <p className="empty-state-description">No dishes match “{searchQuery.trim()}”.</p>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="empty-state-title">No items</h3>
+                      <p className="empty-state-description">No menu items in this category.</p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="menu-grid">
@@ -1603,6 +1659,12 @@ export default function POSPage() {
         <div className="orders-list">
           <div className="orders-header">
             <h3>Recent Orders</h3>
+            <SearchBox
+              value={orderSearch}
+              onChange={setOrderSearch}
+              placeholder="Search orders…"
+              ariaLabel="Search orders"
+            />
             <button onClick={() => fetchOrders(true)} className="btn btn-secondary">Refresh</button>
           </div>
           <div className="orders-table-container">
@@ -1622,7 +1684,14 @@ export default function POSPage() {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice(0, 20).map(order => (
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="no-results">
+                      {orderSearch.trim() ? `No orders match “${orderSearch.trim()}”.` : "No orders yet."}
+                    </td>
+                  </tr>
+                ) :
+                  filteredOrders.slice(0, 20).map(order => (
                   <Fragment key={order._id}>
                     <tr
                       id={`order-row-${order._id}`}

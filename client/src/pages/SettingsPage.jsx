@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { settingsAPI } from "../services/api";
 import {
   IconKitchen,
@@ -144,16 +144,23 @@ export default function SettingsPage() {
           <div className="settings-form">
             {Object.entries(formValues).map(([key, value]) => {
               const inputType = getInputType(key, groupSettings[key]);
-              return (
-                <div key={key} className="setting-field">
-                  <label>{getLabel(key)}</label>
-                  {key === "about_content" ? (
-                    <textarea
-                      rows={5}
-                      value={value}
-                      onChange={e => handleChange(key, e.target.value)}
-                    />
-                  ) : inputType === "checkbox" ? (
+                return (
+                  <div key={key} className="setting-field">
+                    <label>{getLabel(key)}</label>
+                    {key === "hero_image" || key === "hero_video" ? (
+                      <MediaField
+                        kind={key}
+                        value={value}
+                        onUploaded={(url) => handleChange(key, url)}
+                        onRemoved={() => handleChange(key, "")}
+                      />
+                    ) : key === "about_content" ? (
+                      <textarea
+                        rows={5}
+                        value={value}
+                        onChange={e => handleChange(key, e.target.value)}
+                      />
+                    ) : inputType === "checkbox" ? (
                     <label className="toggle-switch">
                       <input
                         type="checkbox"
@@ -194,6 +201,117 @@ export default function SettingsPage() {
           </div>
         </main>
       </div>
+    </div>
+  );
+}
+
+const MEDIA_ACCEPT = {
+  hero_image: "image/jpeg,image/png,image/webp,image/gif",
+  hero_video: "video/mp4,video/webm",
+};
+
+function MediaField({ kind, value, onUploaded, onRemoved }) {
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+  const isImage = kind === "hero_image";
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setProgress(0);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("type", kind);
+      const res = await settingsAPI.uploadMedia(fd, (e) => {
+        if (e.total) setProgress(Math.round((e.loaded / e.total) * 100));
+      });
+      if (res.data?.success) {
+        onUploaded(res.data.url);
+        setFile(null);
+      } else {
+        setError(res.data?.message || "Upload failed");
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setError("");
+    setUploading(true);
+    try {
+      const res = await settingsAPI.removeMedia(kind);
+      if (res.data?.success) onRemoved();
+      else setError(res.data?.message || "Remove failed");
+    } catch (err) {
+      setError(err.response?.data?.message || "Remove failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="media-field">
+      {value ? (
+        isImage ? (
+          <img src={value} alt="Hero preview" className="media-preview" />
+        ) : (
+          <video src={value} controls className="media-preview" />
+        )
+      ) : (
+        <div className="media-empty">No media configured — fallback will be used</div>
+      )}
+
+      <div className="media-controls">
+        <input
+          ref={inputRef}
+          type="file"
+          accept={MEDIA_ACCEPT[kind]}
+          style={{ display: "none" }}
+          onChange={(e) => {
+            setFile(e.target.files?.[0] || null);
+            setError("");
+          }}
+          disabled={uploading}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+        >
+          Choose file
+        </button>
+        {file && <span className="media-filename">{file.name}</span>}
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleUpload}
+          disabled={!file || uploading}
+        >
+          {uploading ? `Uploading ${progress}%` : "Upload"}
+        </button>
+        {value && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={handleRemove}
+            disabled={uploading}
+          >
+            Remove
+          </button>
+        )}
+      </div>
+
+      {uploading && <div className="media-progress">Uploading… {progress}%</div>}
+      {error && <div className="toast error">{error}</div>}
     </div>
   );
 }

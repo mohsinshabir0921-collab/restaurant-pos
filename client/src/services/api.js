@@ -127,6 +127,11 @@ export const settingsAPI = {
   update: (key, value, description, group) => api.put(`/settings/${key}`, { value, description, group }),
   bulkUpdate: (settings) => api.post("/settings/bulk", { settings }),
   initialize: () => api.get("/settings/init"),
+  uploadMedia: (formData, onProgress) =>
+    api.post("/settings/media", formData, {
+      onUploadProgress: (e) => onProgress && onProgress(e),
+    }),
+  removeMedia: (type) => api.delete("/settings/media", { data: { type } }),
 };
 
 export const categoryAPI = {

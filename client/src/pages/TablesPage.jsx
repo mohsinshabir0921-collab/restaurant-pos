@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { tableAPI } from "../services/api";
+import SearchBox from "../components/SearchBox";
 
 export default function TablesPage() {
   const [tables, setTables] = useState([]);
   const [zones, setZones] = useState([]);
+  const [tableSearch, setTableSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -44,6 +46,24 @@ export default function TablesPage() {
   useEffect(() => {
     fetchTables();
   }, []);
+
+  const filteredZones = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return zones;
+    return zones
+      .map(z => ({
+        ...z,
+        tables: z.tables.filter(t =>
+          String(t.number).includes(q) ||
+          (t.name || "").toLowerCase().includes(q) ||
+          (t.zone || "").toLowerCase().includes(q) ||
+          t.status.toLowerCase().includes(q)
+        ),
+      }))
+      .filter(z => z.tables.length > 0);
+  }, [zones, tableSearch]);
+
+  const hasTables = filteredZones.some(z => z.tables.length > 0);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -217,6 +237,12 @@ export default function TablesPage() {
       <div className="page-header">
         <h1>Table Management</h1>
         <div className="header-actions">
+          <SearchBox
+            value={tableSearch}
+            onChange={setTableSearch}
+            placeholder="Search tables…"
+            ariaLabel="Search tables"
+          />
           <label className="toggle-switch">
             <input type="checkbox" checked={editMode} onChange={e => setEditMode(e.target.checked)} />
             <span className="slider"></span>
@@ -231,30 +257,34 @@ export default function TablesPage() {
       <div className="tables-layout">
         <aside className="tables-sidebar">
           <h3>Zones</h3>
-          {zones.map(zone => (
-            <div key={zone.name} className="zone-card">
-              <h4>{zone.name} ({zone.tables.length})</h4>
-              <div className="zone-tables">
-                {zone.tables.map(table => (
-                  <div key={table._id} className={`zone-table ${table.status}`}>
-                    <span>T{table.number}</span>
-                    <span>{table.capacity} seats</span>
-                    <select
-                      value={table.status}
-                      onChange={e => handleStatusChange(table._id, e.target.value)}
-                      className="status-select"
-                    >
-                      <option value="free">Free</option>
-                      <option value="occupied">Occupied</option>
-                      <option value="reserved">Reserved</option>
-                      <option value="cleaning">Cleaning</option>
-                      <option value="maintenance">Maintenance</option>
-                    </select>
-                  </div>
-                ))}
+          {!hasTables ? (
+            <p className="no-results">No tables found.</p>
+          ) : (
+            filteredZones.map(zone => (
+              <div key={zone.name} className="zone-card">
+                <h4>{zone.name} ({zone.tables.length})</h4>
+                <div className="zone-tables">
+                  {zone.tables.map(table => (
+                    <div key={table._id} className={`zone-table ${table.status}`}>
+                      <span>T{table.number}</span>
+                      <span>{table.capacity} seats</span>
+                      <select
+                        value={table.status}
+                        onChange={e => handleStatusChange(table._id, e.target.value)}
+                        className="status-select"
+                      >
+                        <option value="free">Free</option>
+                        <option value="occupied">Occupied</option>
+                        <option value="reserved">Reserved</option>
+                        <option value="cleaning">Cleaning</option>
+                        <option value="maintenance">Maintenance</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </aside>
 
         <main className="tables-main">
@@ -265,7 +295,7 @@ export default function TablesPage() {
                 <p>Click a table to select, drag to move. Changes auto-save.</p>
               </div>
               <div className="canvas-container" ref={canvasRef}>
-                {zones.map(zone => (
+                {filteredZones.map(zone => (
                   <div key={zone.name} className="zone-area">
                     <h4>{zone.name}</h4>
                     <div className="zone-canvas">
@@ -292,26 +322,30 @@ export default function TablesPage() {
             </div>
           ) : (
             <div className="tables-grid">
-              {zones.map(zone => (
-                <div key={zone.name} className="zone-section">
-                  <h3>{zone.name}</h3>
-                  <div className="tables-grid-inner">
-                    {zone.tables.map(table => (
-                      <div key={table._id} className={`table-card ${table.status}`}>
-                        <div className="table-icon">
-                          <span className={`shape-indicator ${table.shape}`}></span>
-                          <span className="table-num">{table.number}</span>
+              {!hasTables ? (
+                <p className="no-results">No tables found.</p>
+              ) : (
+                filteredZones.map(zone => (
+                  <div key={zone.name} className="zone-section">
+                    <h3>{zone.name}</h3>
+                    <div className="tables-grid-inner">
+                      {zone.tables.map(table => (
+                        <div key={table._id} className={`table-card ${table.status}`}>
+                          <div className="table-icon">
+                            <span className={`shape-indicator ${table.shape}`}></span>
+                            <span className="table-num">{table.number}</span>
+                          </div>
+                          <div className="table-info">
+                            <h4>{table.name || `Table ${table.number}`}</h4>
+                            <p>Capacity: {table.capacity}</p>
+                            <span className={`status-badge ${table.status}`}>{table.status}</span>
+                          </div>
                         </div>
-                        <div className="table-info">
-                          <h4>{table.name || `Table ${table.number}`}</h4>
-                          <p>Capacity: {table.capacity}</p>
-                          <span className={`status-badge ${table.status}`}>{table.status}</span>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           )}
         </main>

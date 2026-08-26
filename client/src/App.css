@@ -540,6 +540,83 @@
   padding: var(--space-4);
 }
 
+.pos-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 320px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0 var(--space-3);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.pos-search.inline {
+  flex: 0 1 280px;
+}
+
+.orders-header .pos-search {
+  flex: 0 1 280px;
+  max-width: 280px;
+}
+
+.page-header .pos-search {
+  flex: 0 1 300px;
+  max-width: 300px;
+}
+
+.pos-search:focus-within {
+  border-color: var(--color-primary);
+  background: var(--color-bg-elevated);
+}
+
+.pos-search-icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.pos-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  padding: var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+.pos-search-input::placeholder {
+  color: var(--color-text-faint, var(--color-text-muted));
+}
+
+.pos-search-clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pos-search-clear:hover {
+  background: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
 .menu-item-card {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
@@ -1695,6 +1772,13 @@
   padding: var(--space-3) var(--space-4);
 }
 
+.no-results {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 .order-details-content {
   display: flex;
   flex-direction: column;
@@ -2143,6 +2227,64 @@
   padding: var(--space-16) var(--space-4);
   text-align: center;
   color: var(--color-text-muted);
+}
+
+/* ============================================================
+   Menu Management — responsive layout (mobile / tablet)
+   Scoped to .menu-page so the global navbar and other pages
+   are unaffected. Desktop (>= 1025px) keeps the existing
+   auto-fill grid and header alignment.
+   ============================================================ */
+.menu-page {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Tablet: explicit 2-column grid where there is room. */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .menu-page .menu-items-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Phones: stack the header, full-width search, single-column cards. */
+@media (max-width: 640px) {
+  .menu-page .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .menu-page .page-header h1 {
+    font-size: var(--text-xl);
+  }
+
+  .menu-page .page-header .pos-search {
+    flex: 1 1 auto;
+    max-width: none;
+    width: 100%;
+  }
+
+  .menu-page .page-header .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .menu-page .menu-items-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .menu-item-card .menu-item-header {
+    gap: var(--space-2);
+  }
+
+  /* Let long item names wrap instead of forcing ellipsis cramped
+     against the image on very narrow screens. */
+  .menu-item-info h4 {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
 }
 
 /* ============================================================

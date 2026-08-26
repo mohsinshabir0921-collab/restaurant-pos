@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
 import { menuAPI, categoryAPI } from "../services/api";
+import SearchBox from "../components/SearchBox";
 
 export default function MenuPage() {
   const location = useLocation();
   const pendingItemId = useRef(location.state?.menuItemId || null);
   const [menuItems, setMenuItems] = useState([]);
+  const [menuSearch, setMenuSearch] = useState("");
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -69,6 +71,12 @@ export default function MenuPage() {
     openModal(item);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuItems]);
+
+  const filteredMenuItems = useMemo(() => {
+    const q = menuSearch.trim().toLowerCase();
+    if (!q) return menuItems;
+    return menuItems.filter(item => item.name?.toLowerCase().includes(q));
+  }, [menuItems, menuSearch]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -171,6 +179,12 @@ export default function MenuPage() {
     <div className="menu-page">
       <div className="page-header">
         <h1>Menu Management</h1>
+        <SearchBox
+          value={menuSearch}
+          onChange={setMenuSearch}
+          placeholder="Search menu items…"
+          ariaLabel="Search menu items"
+        />
         <button className="btn btn-primary" onClick={() => openModal()}>Add Menu Item</button>
       </div>
 
@@ -178,9 +192,11 @@ export default function MenuPage() {
 
       {menuItems.length === 0 ? (
         <div className="empty-state">No menu items yet. Click "Add Menu Item" to create one.</div>
+      ) : filteredMenuItems.length === 0 ? (
+        <div className="empty-state">No menu items found.</div>
       ) : (
         <div className="menu-items-grid">
-          {menuItems.map(item => {
+          {filteredMenuItems.map(item => {
             const catName = item.category?.name || item.category;
             return (
               <div key={item._id} className="menu-item-card">
