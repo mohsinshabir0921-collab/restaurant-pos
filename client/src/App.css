@@ -1506,7 +1506,7 @@
 .kitchen-filters button:hover { border-color: var(--color-primary); color: var(--color-primary); }
 .kitchen-filters button.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3); }
 
-.kitchen-filters .form-select { width: auto; min-width: 160px; }
+.kitchen-filters .form-select { width: auto; min-width: 160px; max-width: 100%; }
 
 .kitchen-board {
   display: flex;
@@ -1752,7 +1752,7 @@
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow-xs);
 }
 
@@ -1806,7 +1806,7 @@
 
 @media (max-width: 1100px) {
   .kitchen-board { flex-direction: column; }
-  .kitchen-column { min-width: 100%; }
+  .kitchen-column { min-width: 0; width: 100%; }
 }
 
 /* ============================================================
@@ -3974,4 +3974,91 @@
 .channels-save {
   display: flex;
   justify-content: flex-end;
+}
+
+/* ============================================================
+   Mobile responsive (<= 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  /* POS layout */
+  .pos-layout { grid-template-columns: 1fr; gap: var(--space-3); }
+  .pos-sidebar { position: static; max-height: none; }
+  .pos-main { min-width: 0; }
+
+  /* Order type tabs */
+  .order-type-tabs { flex-wrap: wrap; gap: var(--space-1); }
+  .order-type-tab { flex: 1 1 auto; min-width: 0; font-size: var(--text-xs); padding: var(--space-2); }
+
+  /* Table grid */
+  .table-grid { grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); }
+
+  /* Input rows */
+  .input-row { flex-direction: column; gap: var(--space-2); }
+  .input-row input,
+  .input-row select { width: 100%; max-width: 100%; }
+
+  /* Customer section */
+  .customer-section .input-row { flex-direction: column; }
+
+  /* Cart */
+  .cart-items { max-height: 240px; }
+
+  /* Payment section */
+  .payment-methods { flex-wrap: wrap; gap: var(--space-2); }
+  .payment-method-btn { flex: 1 1 auto; min-width: 0; }
+
+  /* Split payments */
+  .split-payments { flex-direction: column; }
+
+  /* Place order button */
+  .place-order-btn { width: 100%; }
+
+  /* Orders table */
+  .orders-table-container { border-radius: var(--radius-md); }
+  .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Kitchen board */
+  .kitchen-board { flex-direction: column; }
+  .kitchen-column { min-width: 0; width: 100%; }
+
+  /* Kitchen ticket */
+  .kitchen-ticket { padding: var(--space-3); }
+  .kitchen-ticket-items { font-size: var(--text-sm); }
+
+  /* Staff page */
+  .staff-grid { grid-template-columns: 1fr; }
+
+  /* Settings layout */
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-sidebar { position: static; }
+
+  /* Reports layout */
+  .reports-layout { grid-template-columns: 1fr; }
+
+  /* Tables layout */
+  .tables-layout { grid-template-columns: 1fr; }
+
+  /* Forms */
+  .form-grid { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+
+  /* Inputs and selects */
+  input, select, textarea { max-width: 100%; }
+
+  /* Buttons */
+  .btn { white-space: nowrap; }
+
+  /* Filters */
+  .filters { flex-direction: column; align-items: stretch; }
+  .filters input, .filters select { width: 100%; }
+
+  /* Page header actions */
+  .page-actions { flex-wrap: wrap; }
+  .page-actions .btn { flex: 1 1 auto; min-width: 0; }
+
+  /* Stats grid */
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
+  /* Delivery page */
+  .delivery-active-body { padding: var(--space-3); }
 }

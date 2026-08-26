@@ -32,8 +32,6 @@ const stubModule = (absPath, exports) => {
 };
 
 const RESTAURANT = { latitude: 28.6139, longitude: 77.209 };
-// ~3.9 km straight-line east of the restaurant at the same latitude.
-const CUSTOMER = { latitude: 28.6139, longitude: 77.249 };
 
 const createStubs = () => {
   const store = {
@@ -181,7 +179,7 @@ const makeRes = () => {
 // validatePublicOrder must reach Order.create unchanged.
 // ---------------------------------------------------------------------------
 
-test("delivery order persists latitude, longitude, distanceKm, and deliveryFee", async () => {
+test("delivery order persists distanceKm, landmark, and deliveryFee", async () => {
   const d = freshLoad();
   const handlers = getRouteHandlers(d.publicRoutes, "post", "/orders");
   const [validatePublicOrder, attachWebsiteUser, createOrder] = handlers;
@@ -195,12 +193,12 @@ test("delivery order persists latitude, longitude, distanceKm, and deliveryFee",
     items: [{ menuItemId: String(itemId), qty: 1 }],
     deliveryAddress: {
       line1: "12B, Rose Villa",
+      line2: "Near City Mall",
       city: "Delhi",
       state: "Delhi",
-      distanceKm: 0.5,
+      pincode: "110001",
+      distanceKm: 4.2,
       deliveryFee: 5,
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
     },
     deliveryFee: 5,
   });
@@ -221,11 +219,12 @@ test("delivery order persists latitude, longitude, distanceKm, and deliveryFee",
   const persisted = d.store.lastOrderCreateArgs;
   assert.ok(persisted, "Order.create was invoked");
 
-  assert.equal(persisted.deliveryFee, 39, "server-calculated fee is stored");
-  assert.equal(persisted.deliveryAddress.distanceKm, 3.9, "server-calculated distance is stored");
-  assert.equal(persisted.deliveryAddress.latitude, CUSTOMER.latitude, "customer latitude is stored");
-  assert.equal(persisted.deliveryAddress.longitude, CUSTOMER.longitude, "customer longitude is stored");
+  assert.equal(persisted.deliveryFee, 42, "server-calculated fee from distanceKm is stored");
+  assert.equal(persisted.deliveryAddress.distanceKm, 4.2, "customer distanceKm is stored");
+  assert.equal(persisted.deliveryAddress.latitude, undefined, "no latitude is stored");
+  assert.equal(persisted.deliveryAddress.longitude, undefined, "no longitude is stored");
   assert.equal(persisted.deliveryAddress.line1, "12B, Rose Villa", "human-readable address is preserved");
+  assert.equal(persisted.deliveryAddress.line2, "Near City Mall", "landmark is preserved");
 });
 
 after(() => {

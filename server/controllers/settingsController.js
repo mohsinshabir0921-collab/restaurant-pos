@@ -1,5 +1,6 @@
 const Settings = require("../models/Settings");
 const { handleError } = require("../utils/httpError");
+const thermalPrinter = require("../services/thermalPrinter");
 
 const NUMERIC_KEYS = new Set(["default_cgst", "default_sgst", "default_igst", "service_charge_percent"]);
 const BOOLEAN_KEYS = new Set([
@@ -198,6 +199,22 @@ const initializeDefaults = async (req, res) => {
   }
 };
 
+const testPrint = async (req, res) => {
+  try {
+    await thermalPrinter.printTest();
+    return res.status(200).json({
+      success: true,
+      message: "Test receipt sent to thermal printer",
+    });
+  } catch (error) {
+    console.log("TEST PRINT ERROR:", error);
+    return res.status(502).json({
+      success: false,
+      message: `Test print failed: ${error.message}`,
+    });
+  }
+};
+
 module.exports = {
   getAllSettings,
   getPublicSettings,
@@ -205,4 +222,5 @@ module.exports = {
   updateSetting,
   bulkUpdateSettings,
   initializeDefaults,
+  testPrint,
 };

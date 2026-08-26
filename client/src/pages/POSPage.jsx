@@ -36,6 +36,9 @@ const formatAddress = (addr) => {
 
 const ORDER_TYPE_LABELS = { dinein: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" };
 
+// Dedicated "waiter" role for front-of-house staff serving Dine-In tables.
+const WAITER_ROLES = ["waiter"];
+
 const SEEN_ORDERS_KEY = "pos_seen_orders_v1";
 const SOUND_ENABLED_KEY = "pos_sound_enabled_v2";
 
@@ -52,15 +55,33 @@ const toLocalTimeInput = (d = new Date()) => {
   return `${h}:${m}`;
 };
 
-const printStyle = { fontFamily: "monospace", fontSize: 13, color: "#000", width: "72mm", margin: "0 auto" };
+  const printStyleFor = (thermal) => ({ fontFamily: "'Courier New', Courier, monospace", fontSize: 12, color: "#000", width: thermal ? "80mm" : "100%", margin: "0 auto", lineHeight: 1.35 });
+
+  const numberToWords = (num) => {
+    const n = Math.max(0, Math.round(Number(num) || 0));
+    if (n === 0) return "Zero Rupees Only";
+    const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+    const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+    const helper = (x) => {
+      if (x < 20) return ones[x];
+      if (x < 100) return tens[Math.floor(x / 10)] + (x % 10 ? " " + ones[x % 10] : "");
+      if (x < 1000) return ones[Math.floor(x / 100)] + " Hundred" + (x % 100 ? " " + helper(x % 100) : "");
+      if (x < 100000) return helper(Math.floor(x / 1000)) + " Thousand" + (x % 1000 ? " " + helper(x % 1000) : "");
+      return helper(Math.floor(x / 100000)) + " Lakh" + (x % 100000 ? " " + helper(x % 100000) : "");
+    };
+    return helper(n) + " Rupees Only";
+  };
 const printRow = (display, flex, space) => ({ display, justifyContent: space ? "space-between" : undefined, ...flex });
 
-const KOTReceipt = ({ order }) => (
-  <div style={printStyle}>
+const KOTReceipt = ({ order, thermal = true }) => (
+    <div style={printStyleFor(thermal)}>
     <div style={{ textAlign: "center" }}>
       <h3 style={{ margin: 0, fontSize: 15 }}>KITCHEN ORDER TICKET</h3>
       <div>#{order.orderNumber || order._id}</div>
       <div>{order.orderType === "dinein" ? `Table: ${order.tableNo || "-"}` : order.orderType.toUpperCase()}</div>
+      {order.orderType === "dinein" && (
+        <div>Waiter: {order.servedBy?.name || "-"}</div>
+      )}
       <div>{new Date(order.createdAt).toLocaleString()}</div>
     </div>
     <hr style={{ borderTop: "1px dashed #000" }} />
@@ -85,7 +106,7 @@ const KOTReceipt = ({ order }) => (
   </div>
 );
 
-const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", restaurantPhone = "" }) => {
+const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", restaurantPhone = "", gstin = "", header = "", footer = "", thermal = true }) => {
   const money = (v) => formatCurrency(v);
   const orderTypeLabel = ORDER_TYPE_LABELS[order.orderType] || order.orderType;
   const cgst = Number(order.cgst || 0);
@@ -98,35 +119,72 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
   const hasDeliveryFee = Number(order.deliveryFee) > 0;
   const hasLoyalty = Number(order.loyaltyPointsUsed) > 0;
   const hasDiscount = Number(order.discount) > 0 || order.couponCode;
+  const grandTotal = Number(order.total || 0);
+  const created = order.createdAt ? new Date(order.createdAt) : null;
+  const dateStr = created ? created.toLocaleDateString("en-IN") : "";
+  const timeStr = created ? created.toLocaleTimeString("en-IN") : "";
 
   return (
-    <div style={printStyle}>
+    <div style={printStyleFor(thermal)}>
+      {/* HEADER */}
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>{restaurantName || "Restaurant"}</div>
-        {restaurantAddress && <div>{restaurantAddress}</div>}
-        {restaurantPhone && <div>Ph: {restaurantPhone}</div>}
-        <h3 style={{ margin: 0, fontSize: 14, marginTop: 4 }}>TAX INVOICE</h3>
-        <div>#{order.orderNumber || order._id}</div>
-        <div>{new Date(order.createdAt).toLocaleString()}</div>
+        <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 0.4 }}>{restaurantName || "Restaurant"}</div>
+        {restaurantAddress && <div style={{ fontSize: 11 }}>{restaurantAddress}</div>}
+        {restaurantPhone && <div style={{ fontSize: 11 }}>Ph: {restaurantPhone}</div>}
+        {gstin && <div style={{ fontSize: 11 }}>GSTIN: {gstin}</div>}
+        {header && <div style={{ fontSize: 11, marginTop: 2 }}>{header}</div>}
       </div>
-      <hr style={{ borderTop: "1px dashed #000" }} />
-      <div>Type: {orderTypeLabel}</div>
-      {order.orderType === "dinein" && order.tableNo ? <div>Table: {order.tableNo}</div> : null}
-      {order.orderType === "takeaway" && order.pickupAt ? <div>Pickup Date/Time: {new Date(order.pickupAt).toLocaleString()}</div> : null}
-      {order.customerName && <div>Customer: {order.customerName}</div>}
-      {order.customerPhone && <div>Phone: {order.customerPhone}</div>}
-      {order.customerEmail && <div>Email: {order.customerEmail}</div>}
-      {order.orderType === "delivery" && order.deliveryAddress && (
-        <div>Deliver to: {formatAddress(order.deliveryAddress)}</div>
-      )}
-      <hr style={{ borderTop: "1px dashed #000" }} />
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      <div style={{ borderTop: "1px dashed #000", borderBottom: "1px dashed #000", margin: "6px 0", padding: "4px 0", textAlign: "center" }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>TAX INVOICE</div>
+        <div style={{ fontSize: 11 }}>Bill No: {order.orderNumber || order._id}</div>
+        <div style={{ fontSize: 11 }}>Date: {dateStr}  Time: {timeStr}</div>
+      </div>
+
+      {/* BILL DETAILS */}
+      <div style={{ fontSize: 11, marginBottom: 6 }}>
+        <div style={printRow("flex", {}, true)}><span>Order Type</span><span>{orderTypeLabel}</span></div>
+        {order.orderType === "dinein" && order.tableNo ? (
+          <div style={printRow("flex", {}, true)}><span>Table</span><span>{order.tableNo}</span></div>
+        ) : null}
+        {order.orderType === "dinein" ? (
+          <div style={printRow("flex", {}, true)}><span>Waiter</span><span>{order.servedBy?.name || "-"}</span></div>
+        ) : null}
+        {order.orderType === "takeaway" && order.pickupAt ? (
+          <div style={printRow("flex", {}, true)}><span>Pickup</span><span>{new Date(order.pickupAt).toLocaleString("en-IN")}</span></div>
+        ) : null}
+        {order.customerName && (
+          <div style={printRow("flex", {}, true)}><span>Customer</span><span>{order.customerName}</span></div>
+        )}
+        {order.customerPhone && (
+          <div style={printRow("flex", {}, true)}><span>Phone</span><span>{order.customerPhone}</span></div>
+        )}
+        {order.orderType === "delivery" && order.deliveryAddress && (
+          <div style={{ marginTop: 2 }}>
+            <div style={{ fontWeight: 700 }}>Deliver To:</div>
+            <div style={{ paddingLeft: 6 }}>{formatAddress(order.deliveryAddress)}</div>
+            {order.deliveryAddress?.distanceKm ? (
+              <div style={{ paddingLeft: 6 }}>Distance: {order.deliveryAddress.distanceKm} km</div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
+
+      {/* ITEM TABLE */}
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+        <colgroup>
+          <col style={{ width: "48%" }} />
+          <col style={{ width: "12%" }} />
+          <col style={{ width: "20%" }} />
+          <col style={{ width: "20%" }} />
+        </colgroup>
         <thead>
-          <tr>
-            <th style={{ textAlign: "left" }}>Item</th>
-            <th style={{ textAlign: "right" }}>Qty</th>
-            <th style={{ textAlign: "right" }}>Rate</th>
-            <th style={{ textAlign: "right" }}>Amt</th>
+          <tr style={{ borderBottom: "1px dashed #000" }}>
+            <th style={{ textAlign: "left", padding: "2px 0" }}>Particulars</th>
+            <th style={{ textAlign: "right", padding: "2px 0" }}>Qty</th>
+            <th style={{ textAlign: "right", padding: "2px 0" }}>Rate</th>
+            <th style={{ textAlign: "right", padding: "2px 0" }}>Amt</th>
           </tr>
         </thead>
         <tbody>
@@ -134,46 +192,68 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
             const size = getOrderItemSize(item);
             const addons = getOrderItemAddons(item);
             return (
-            <tr key={i}>
-              <td>
-                {item.name}
-                {size ? ` [${size}]` : ""}
-                {addons.length > 0 ? ` (${addons.join(", ")})` : ""}
-                {item.notes ? ` — ${item.notes}` : ""}
-              </td>
-              <td style={{ textAlign: "right" }}>{item.qty}</td>
-              <td style={{ textAlign: "right" }}>{money(item.price)}</td>
-              <td style={{ textAlign: "right" }}>{money(item.price * item.qty)}</td>
-            </tr>
+              <tr key={i} style={{ borderBottom: "1px dotted #bbb" }}>
+                <td style={{ padding: "3px 4px 3px 0", verticalAlign: "top", wordBreak: "break-word", whiteSpace: "normal" }}>
+                  <div style={{ fontWeight: 700 }}>{item.name}</div>
+                  {(size || addons.length > 0 || item.notes) && (
+                    <div style={{ fontSize: 10, marginTop: 1, lineHeight: 1.3 }}>
+                      {size ? <div>Size: {size}</div> : null}
+                      {addons.length > 0 ? <div>Add-ons: {addons.join(", ")}</div> : null}
+                      {item.notes ? <div>Note: {item.notes}</div> : null}
+                    </div>
+                  )}
+                </td>
+                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{item.qty}</td>
+                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{money(item.price)}</td>
+                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{money((item.price || 0) * (item.qty || 0))}</td>
+              </tr>
             );
           })}
         </tbody>
       </table>
-      <hr style={{ borderTop: "1px dashed #000" }} />
-      <div style={printRow("flex", {}, true)}><span>Subtotal</span><span>{money(order.subtotal)}</span></div>
-      {hasDiscount && (
-        <div style={printRow("flex", {}, true)}><span>Discount{order.couponCode ? ` (${order.couponCode})` : ""}</span><span>-{money(order.discount)}</span></div>
-      )}
-      {hasTax && taxBreakdown > 0 && (
-        <>
-          {cgst > 0 && <div style={printRow("flex", {}, true)}><span>  CGST</span><span>{money(cgst)}</span></div>}
-          {sgst > 0 && <div style={printRow("flex", {}, true)}><span>  SGST</span><span>{money(sgst)}</span></div>}
-          {igst > 0 && <div style={printRow("flex", {}, true)}><span>  IGST</span><span>{money(igst)}</span></div>}
-        </>
-      )}
-      {hasTax && taxBreakdown === 0 && <div style={printRow("flex", {}, true)}><span>Tax</span><span>{money(taxTotal)}</span></div>}
-      {hasServiceCharge && <div style={printRow("flex", {}, true)}><span>Service Charge</span><span>{money(order.serviceCharge)}</span></div>}
-      {hasDeliveryFee && <div style={printRow("flex", {}, true)}><span>Delivery Fee</span><span>{money(order.deliveryFee)}</span></div>}
-      {hasLoyalty && <div style={printRow("flex", {}, true)}><span>Loyalty Used</span><span>{order.loyaltyPointsUsed} pts</span></div>}
-      <div style={{ ...printRow("flex", {}, true), fontWeight: 700, borderTop: "1px solid #000", paddingTop: 4, marginTop: 4 }}>
-        <span>TOTAL</span><span>{money(order.total)}</span>
+
+      <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
+
+      {/* TOTAL SECTION */}
+      <div style={{ fontSize: 11 }}>
+        <div style={printRow("flex", {}, true)}><span>Subtotal</span><span>{money(order.subtotal)}</span></div>
+        {hasDiscount && (
+          <div style={printRow("flex", {}, true)}><span>Discount{order.couponCode ? ` (${order.couponCode})` : ""}</span><span>-{money(order.discount)}</span></div>
+        )}
+        {hasTax && taxBreakdown > 0 && (
+          <>
+            {cgst > 0 && <div style={printRow("flex", {}, true)}><span>CGST</span><span>{money(cgst)}</span></div>}
+            {sgst > 0 && <div style={printRow("flex", {}, true)}><span>SGST</span><span>{money(sgst)}</span></div>}
+            {igst > 0 && <div style={printRow("flex", {}, true)}><span>IGST</span><span>{money(igst)}</span></div>}
+          </>
+        )}
+        {hasTax && taxBreakdown === 0 && <div style={printRow("flex", {}, true)}><span>Tax</span><span>{money(taxTotal)}</span></div>}
+        {hasServiceCharge && <div style={printRow("flex", {}, true)}><span>Service Charge</span><span>{money(order.serviceCharge)}</span></div>}
+        {hasDeliveryFee && <div style={printRow("flex", {}, true)}><span>Delivery Charge</span><span>{money(order.deliveryFee)}</span></div>}
+        {hasLoyalty && <div style={printRow("flex", {}, true)}><span>Loyalty Used</span><span>{order.loyaltyPointsUsed} pts</span></div>}
       </div>
-      <hr style={{ borderTop: "1px dashed #000" }} />
-      <div>Payment: {order.paymentMethod} / {order.paymentStatus}</div>
-      {order.paidAt && <div>Paid: {new Date(order.paidAt).toLocaleString()}</div>}
-      {order.completedAt && <div>Completed: {new Date(order.completedAt).toLocaleString()}</div>}
-      {order.notes && <div style={{ marginTop: 4 }}>Notes: {order.notes}</div>}
-      <div style={{ textAlign: "center", marginTop: 8 }}>Thank You</div>
+
+      <div style={{ borderTop: "1px solid #000", borderBottom: "2px solid #000", margin: "4px 0", padding: "4px 0", fontWeight: 800, fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+        <span>GRAND TOTAL</span><span>{money(grandTotal)}</span>
+      </div>
+
+      {/* PAYMENT */}
+      <div style={{ fontSize: 11, marginTop: 4 }}>
+        <div style={printRow("flex", {}, true)}><span>Payment Mode</span><span>{order.paymentMethod || "-"}</span></div>
+        <div style={printRow("flex", {}, true)}><span>Payment Status</span><span>{order.paymentStatus || "-"}</span></div>
+        {order.paymentStatus === "paid" ? (
+          <div style={printRow("flex", {}, true)}><span>Amount Paid</span><span>{money(grandTotal)}</span></div>
+        ) : (
+          <div style={printRow("flex", {}, true)}><span>Balance Due</span><span>{money(grandTotal)}</span></div>
+        )}
+      </div>
+
+      {/* FOOTER */}
+      <div style={{ borderTop: "1px dashed #000", margin: "6px 0 0", paddingTop: 4, textAlign: "center", fontSize: 11 }}>
+        <div>Amount in words: {numberToWords(grandTotal)}</div>
+        <div style={{ marginTop: 4, fontWeight: 700 }}>{footer || "Thank You, Visit Us Again!"}</div>
+        <div style={{ marginTop: 2 }}>***</div>
+      </div>
     </div>
   );
 };
@@ -199,6 +279,8 @@ export default function POSPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef(null);
   const [selectedTable, setSelectedTable] = useState(null);
+  const [selectedWaiter, setSelectedWaiter] = useState(null);
+  const [waiterStaff, setWaiterStaff] = useState([]);
 
   const [cartItems, setCartItems] = useState([]);
   const [customerName, setCustomerName] = useState("");
@@ -569,6 +651,22 @@ export default function POSPage() {
     }
   };
 
+  const fetchWaiterStaff = async () => {
+    try {
+      // Reuse the existing staff API (no role filter returns all staff); filter
+      // client-side to the roles eligible to act as waiters.
+      const res = await authAPI.getStaff({ limit: 100 });
+      if (res.data.success) {
+        const eligible = (res.data.staff || []).filter(
+          (u) => WAITER_ROLES.includes(u.role) && u.isActive !== false
+        );
+        setWaiterStaff(eligible);
+      }
+    } catch (err) {
+      console.error("Failed to load waiter staff");
+    }
+  };
+
   const fetchPosSettings = async () => {
     try {
       const res = await settingsAPI.getAll();
@@ -598,6 +696,7 @@ export default function POSPage() {
     fetchLoyaltyConfig();
     fetchOrders(true);
     fetchDeliveryStaff();
+    fetchWaiterStaff();
     if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
   }, []);
 
@@ -750,6 +849,7 @@ export default function POSPage() {
     setCustomerPhone("");
     setCustomerId(null);
     setSelectedTable(null);
+    setSelectedWaiter(null);
     setOrderType("dinein");
     setPaymentMethod("cash");
     setSplitPayments([
@@ -914,6 +1014,7 @@ export default function POSPage() {
         ...(paymentMethod === "split"
           ? { splitPayments: splitPayments.map((r) => ({ ...r, amount: Number(r.amount) })) }
           : {}),
+        ...(orderType === "dinein" && selectedWaiter ? { servedBy: selectedWaiter } : {}),
       };
 
       const res = await orderAPI.create(orderData);
@@ -957,6 +1058,9 @@ export default function POSPage() {
         }
 
         setLastOrder(createdOrder);
+        if (posSettings?.kot_auto_print) {
+          handlePrint(createdOrder, "kot");
+        }
         clearCart();
         fetchOrders(false);
         if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
@@ -1037,8 +1141,22 @@ export default function POSPage() {
     if (orderType !== "dinein") setOrderType("dinein");
   };
 
-  const handlePrint = (order, type) => {
-    setPrintOrder({ type, order });
+  const handlePrint = async (order, type) => {
+    if (posSettings?.thermal_printer_enabled) {
+      try {
+        const res = type === "kot"
+          ? await orderAPI.printKOT(order._id)
+          : await orderAPI.printInvoice(order._id);
+        if (res.data?.thermalPrint?.ok) {
+          return;
+        }
+      } catch (err) {
+        // fall through to browser print fallback
+      }
+      setPrintOrder({ type, order });
+    } else {
+      setPrintOrder({ type, order });
+    }
   };
 
   const renderOrderActions = (order) => {
@@ -1082,6 +1200,9 @@ export default function POSPage() {
   if (!isAdminOrCashier && !isKitchen) {
     return <div className="unauthorized">Access denied. Kitchen staff only.</div>;
   }
+
+  const thermalEnabled = !!posSettings?.thermal_printer_enabled;
+  const thermalPort = posSettings?.thermal_printer_port || "";
 
   return (
     <div className="pos-page">
@@ -1260,6 +1381,7 @@ export default function POSPage() {
                   className={`order-type-tab ${orderType === type.key ? "active" : ""}`}
                   onClick={() => {
                     setOrderType(type.key);
+                    if (type.key !== "dinein") setSelectedWaiter(null);
                     if (type.key === "takeaway") {
                       setPickupDate((d) => d || toLocalDateInput());
                       setPickupTime((t) => t || toLocalTimeInput());
@@ -1296,6 +1418,23 @@ export default function POSPage() {
               </div>
             )}
 
+            {orderType === "dinein" && (
+              <div className="waiter-selector">
+                <h4>Waiter</h4>
+                <select
+                  className="form-select"
+                  value={selectedWaiter || ""}
+                  onChange={(e) => setSelectedWaiter(e.target.value || null)}
+                  aria-label="Select waiter"
+                >
+                  <option value="">Select waiter</option>
+                  {waiterStaff.map((w) => (
+                    <option key={w._id} value={w._id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="customer-section">
               <h4>Customer</h4>
               <div className="input-row">
@@ -1305,15 +1444,17 @@ export default function POSPage() {
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                 />
-                <input
-                  type="tel"
-                  placeholder="Phone"
-                  value={customerPhone}
-                  onChange={(e) => {
-                    setCustomerPhone(e.target.value);
-                    handleCustomerSearch(e.target.value);
-                  }}
-                />
+                {orderType !== "dinein" && (
+                  <input
+                    type="tel"
+                    placeholder="Phone"
+                    value={customerPhone}
+                    onChange={(e) => {
+                      setCustomerPhone(e.target.value);
+                      handleCustomerSearch(e.target.value);
+                    }}
+                  />
+                )}
               </div>
               {customerId && (
                 <div className="customer-found">
@@ -1646,7 +1787,7 @@ export default function POSPage() {
                     <span className="meta-item">{new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                     {order.priority === "high" && <span className="priority-high">Priority</span>}
                   </div>
-                  <p className="customer-name">{order.customerName}</p>
+                  <p className="customer-name">{order.orderType === "dinein" ? (order.servedBy?.name || "-") : order.customerName}</p>
                   <div className="ticket-items">
                     {order.items.map((item, i) => {
                       const size = getOrderItemSize(item);
@@ -1715,7 +1856,7 @@ export default function POSPage() {
                       style={{ cursor: "pointer" }}
                     >
                       <td>{order.orderNumber}</td>
-                      <td>{order.customerName}</td>
+                      <td>{order.orderType === "dinein" ? (order.servedBy?.name || "-") : order.customerName}</td>
                       <td>{order.orderType}</td>
                       <td>{order.tableNo || "-"}</td>
                       <td><span className={`status-badge ${order.orderStatus}`}>{order.orderStatus}</span></td>
@@ -1738,7 +1879,10 @@ export default function POSPage() {
                             {order.orderType === "delivery" && order.deliveryAddress && (
                               <div className="order-note">
                                 <span className="order-note-label">Delivery Address</span>
-                                <span className="order-note-text">{formatAddress(order.deliveryAddress)}</span>
+                                <span className="order-note-text">
+                                  {formatAddress(order.deliveryAddress)}
+                                  {order.deliveryAddress?.distanceKm ? ` · ${order.deliveryAddress.distanceKm} km` : ""}
+                                </span>
                               </div>
                             )}
                             {order.orderType === "takeaway" && order.pickupAt && (
@@ -1750,6 +1894,30 @@ export default function POSPage() {
                             <div className="order-note">
                               <span className="order-note-label">Notes</span>
                               <span className="order-note-text">{order.notes || "No notes"}</span>
+                            </div>
+                            {order.orderType === "dinein" && (
+                              <div className="order-note">
+                                <span className="order-note-label">Waiter</span>
+                                <span className="order-note-text">{order.servedBy?.name || "-"}</span>
+                              </div>
+                            )}
+                            <div className="order-note">
+                              <span className="order-note-label">Items</span>
+                              <div className="order-items-detail">
+                                {order.items.map((item, i) => {
+                                  const size = getOrderItemSize(item);
+                                  const addons = getOrderItemAddons(item);
+                                  return (
+                                    <div key={i} className="order-item-detail">
+                                      <div className="order-item-detail-name">{item.name}</div>
+                                      {size && <div className="order-item-detail-row">Size: {size}</div>}
+                                      <div className="order-item-detail-row">Qty: {item.qty}</div>
+                                      {addons.length > 0 && <div className="order-item-detail-row">Add-ons: {addons.join(", ")}</div>}
+                                      {item.notes && <div className="order-item-detail-row">Notes: {item.notes}</div>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -1869,18 +2037,34 @@ export default function POSPage() {
               @media print {
                 #root { display: none !important; }
                 body { background: #fff !important; margin: 0 !important; }
-                .print-area { display: block !important; width: 72mm; margin: 0 auto; padding: 0; }
+                .print-area {
+                  display: block !important;
+                  width: ${thermalEnabled ? "80mm" : "100%"};
+                  margin: 0 auto;
+                  padding: 0;
+                  font-family: 'Courier New', Courier, monospace;
+                  font-size: 12px;
+                  line-height: 1.35;
+                  color: #000;
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+                .print-area * { box-sizing: border-box; }
               }
             `}</style>
-            <div className="print-area">
+            <div className="print-area" data-printer-port={thermalPort}>
               {printOrder.type === "kot" ? (
-                <KOTReceipt order={printOrder.order} />
+                <KOTReceipt order={printOrder.order} thermal={thermalEnabled} />
               ) : (
                 <InvoiceReceipt
                   order={printOrder.order}
                   restaurantName={posSettings?.restaurant_name || ""}
                   restaurantAddress={posSettings?.restaurant_address || ""}
                   restaurantPhone={posSettings?.restaurant_phone || ""}
+                  gstin={posSettings?.gstin || ""}
+                  header={posSettings?.receipt_header || ""}
+                  footer={posSettings?.receipt_footer || ""}
+                  thermal={thermalEnabled}
                 />
               )}
             </div>

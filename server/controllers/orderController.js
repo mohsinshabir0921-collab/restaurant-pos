@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const MenuItem = require("../models/MenuItem");
 const Customer = require("../models/Customer");
 const Table = require("../models/Table");
@@ -13,6 +14,7 @@ const StockMovement = require("../models/StockMovement");
 const { handleError } = require("../utils/httpError");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
+const thermalPrinter = require("../services/thermalPrinter");
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "card", "upi", "wallet", "cod", "split"];
 const ALLOWED_ORDER_TYPES = ["dinein", "takeaway", "delivery"];
@@ -293,6 +295,7 @@ const createOrder = async (req, res) => {
       discountType = "flat",
       discountReason,
       source = "pos",
+      servedBy,
     } = req.body;
     
     console.log("--- Step 1 complete: Destructured fields ---", {
@@ -628,6 +631,23 @@ const createOrder = async (req, res) => {
     }
 
     console.log("--- Step 16: Creating order in database ---");
+
+    // Validate an explicitly selected waiter (only for dine-in). We never infer
+    // the waiter from createdBy; createdBy remains the authenticated user.
+    let validatedServedBy = null;
+    if (servedBy) {
+      const WAITER_ROLES = ["waiter"];
+      const waiterUser = await User.findById(servedBy);
+      if (!waiterUser || !WAITER_ROLES.includes(waiterUser.role)) {
+        console.log("VALIDATION FAILED: Invalid waiter selected", servedBy);
+        return res.status(400).json({
+          success: false,
+          message: "Invalid waiter selected",
+        });
+      }
+      validatedServedBy = waiterUser._id;
+    }
+
     const order = await Order.create({
       customer: customer?._id || null,
       customerName: customerName.trim(),
@@ -658,6 +678,7 @@ const createOrder = async (req, res) => {
       pickupAt: pickupAt ? new Date(pickupAt) : null,
       notes: notes?.trim() || "",
       source,
+      servedBy: validatedServedBy,
       createdBy: req.user._id,
     });
     console.log("Order created:", order._id, "orderNumber:", order.orderNumber);
@@ -829,6 +850,7 @@ const getAllOrders = async (req, res) => {
         .populate("customer", "name phone email")
         .populate("table", "number zone")
         .populate("createdBy", "name")
+        .populate("servedBy", "name")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(safeLimit)
@@ -1444,7 +1466,8 @@ const printKOT = async (req, res) => {
 
     const order = await Order.findById(id)
       .populate("table", "number zone")
-      .populate("customer", "name phone");
+      .populate("customer", "name phone")
+      .populate("servedBy", "name");
 
     if (!order) {
       return res.status(404).json({
@@ -1453,17 +1476,31 @@ const printKOT = async (req, res) => {
       });
     }
 
-    order.kotPrinted = true;
-    order.kotPrintedAt = new Date();
-    await order.save();
+    const thermal = { ok: false };
+    const target = await thermalPrinter.getThermalTarget();
+    if (target) {
+      try {
+        await thermalPrinter.printKOT(order);
+        thermal.ok = true;
+        order.kotPrinted = true;
+        order.kotPrintedAt = new Date();
+        await order.save();
+      } catch (err) {
+        thermal.ok = false;
+        thermal.error = err.message;
+      }
+    } else {
+      thermal.error = "Thermal printer not configured (enable it and set a valid LAN IP, e.g. 192.168.1.50)";
+    }
 
     return res.status(200).json({
       success: true,
-      message: "KOT print triggered",
+      message: thermal.ok ? "KOT sent to thermal printer" : `KOT not printed via thermal: ${thermal.error || ""}`,
+      thermalPrint: thermal,
       order: {
-        ...order,
-        kotPrinted: true,
-        kotPrintedAt: new Date(),
+        ...order.toObject(),
+        kotPrinted: order.kotPrinted,
+        kotPrintedAt: order.kotPrintedAt,
       },
     });
   } catch (error) {
@@ -1486,7 +1523,8 @@ const printInvoice = async (req, res) => {
     const order = await Order.findById(id)
       .populate("customer", "name phone email addresses")
       .populate("table", "number zone")
-      .populate("createdBy", "name");
+      .populate("createdBy", "name")
+      .populate("servedBy", "name");
 
     if (!order) {
       return res.status(404).json({
@@ -1495,17 +1533,31 @@ const printInvoice = async (req, res) => {
       });
     }
 
-    order.invoicePrinted = true;
-    order.invoicePrintedAt = new Date();
-    await order.save();
+    const thermal = { ok: false };
+    const target = await thermalPrinter.getThermalTarget();
+    if (target) {
+      try {
+        await thermalPrinter.printInvoice(order);
+        thermal.ok = true;
+        order.invoicePrinted = true;
+        order.invoicePrintedAt = new Date();
+        await order.save();
+      } catch (err) {
+        thermal.ok = false;
+        thermal.error = err.message;
+      }
+    } else {
+      thermal.error = "Thermal printer not configured (enable it and set a valid LAN IP, e.g. 192.168.1.50)";
+    }
 
     return res.status(200).json({
       success: true,
-      message: "Invoice print triggered",
+      message: thermal.ok ? "Invoice sent to thermal printer" : `Invoice not printed via thermal: ${thermal.error || ""}`,
+      thermalPrint: thermal,
       order: {
-        ...order,
-        invoicePrinted: true,
-        invoicePrintedAt: new Date(),
+        ...order.toObject(),
+        invoicePrinted: order.invoicePrinted,
+        invoicePrintedAt: order.invoicePrintedAt,
       },
     });
   } catch (error) {

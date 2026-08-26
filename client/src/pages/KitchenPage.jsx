@@ -133,7 +133,11 @@ export default function KitchenPage() {
         <span className="meta-item">₹{Number(order.total || 0).toLocaleString("en-IN")}</span>
         <span className="meta-item">{order.paymentMethod}</span>
       </div>
-      <p className="customer-name">{order.customerName || "Walk-in Customer"}</p>
+      {order.orderType === "dinein" ? (
+        <p className="customer-name">Waiter: {order.servedBy?.name || "-"}</p>
+      ) : (
+        <p className="customer-name">{order.customerName || "Walk-in Customer"}</p>
+      )}
 
       <div className="ticket-items">
         {(order.items || []).map((item, index) => {

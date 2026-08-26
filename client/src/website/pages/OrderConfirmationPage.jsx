@@ -187,6 +187,12 @@ export default function OrderConfirmationPage() {
                     </span>
                   </li>
                 )}
+                {address?.distanceKm ? (
+                  <li>
+                    <span className="detail-label">Delivery Distance</span>
+                    <span className="detail-value">{address.distanceKm} km</span>
+                  </li>
+                ) : null}
               </ul>
               {order.notes && <p className="confirmation-note">Note: {order.notes}</p>}
             </div>

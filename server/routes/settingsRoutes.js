@@ -9,6 +9,7 @@ const {
   updateSetting,
   bulkUpdateSettings,
   initializeDefaults,
+  testPrint,
 } = require("../controllers/settingsController");
 const { uploadMedia, removeMedia } = require("../controllers/mediaController");
 
@@ -35,6 +36,7 @@ const multerErrorHandler = (err, req, res, next) => {
 
 router.get("/public", getPublicSettings);
 router.get("/init", protect, authorizeRoles("admin"), initializeDefaults);
+router.post("/test-printer", protect, authorizeRoles("admin"), testPrint);
 router.get("/", protect, authorizeRoles("admin"), getAllSettings);
 router.get("/:key", protect, authorizeRoles("admin"), getSetting);
 router.put("/:key", protect, authorizeRoles("admin"), updateSetting);

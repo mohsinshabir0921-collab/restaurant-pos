@@ -434,6 +434,7 @@ orderSchema.statics.getKitchenOrders = async function () {
   })
     .populate("table", "number zone")
     .populate("customer", "name phone")
+    .populate("servedBy", "name")
     .sort({ createdAt: 1 })
     .lean();
 };

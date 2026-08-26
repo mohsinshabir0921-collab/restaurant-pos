@@ -69,7 +69,7 @@ const defaultSettings = [
   { key: "default_igst", value: 5, description: "Default IGST %", group: "tax" },
   { key: "service_charge_percent", value: 0, description: "Service charge %", group: "tax" },
   { key: "service_charge_enabled", value: false, description: "Enable service charge", group: "tax" },
-  { key: "thermal_printer_enabled", value: false, description: "Enable thermal printing", group: "printing" },
+  { key: "thermal_printer_enabled", value: true, description: "Enable thermal printing", group: "printing" },
   { key: "thermal_printer_port", value: "", description: "Printer port (COM3, /dev/usb/lp0)", group: "printing" },
   { key: "kot_auto_print", value: true, description: "Auto-print KOT on order", group: "printing" },
   { key: "receipt_header", value: "", description: "Receipt header text", group: "printing" },

@@ -132,6 +132,7 @@ export const settingsAPI = {
       onUploadProgress: (e) => onProgress && onProgress(e),
     }),
   removeMedia: (type) => api.delete("/settings/media", { data: { type } }),
+  testPrinter: () => api.post("/settings/test-printer"),
 };
 
 export const categoryAPI = {

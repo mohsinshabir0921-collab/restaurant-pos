@@ -234,8 +234,9 @@ export default function DeliveryPage() {
 
   const formatAddress = (addr) => {
     if (!addr) return "—";
-    const parts = [addr.line1, addr.city, addr.state, addr.pincode].filter(Boolean);
-    return parts.join(", ") || "—";
+    const parts = [addr.line1, addr.line2, addr.city, addr.state, addr.pincode].filter(Boolean);
+    const str = parts.join(", ");
+    return (str ? `${str}${addr.distanceKm ? ` · ${addr.distanceKm} km` : ""}` : "—");
   };
 
   const formatTime = (value) => {

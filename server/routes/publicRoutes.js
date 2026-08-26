@@ -12,12 +12,7 @@ const { validateCoupon } = require("../controllers/couponController");
 const { getPublicActive } = require("../controllers/bannerController");
 const { createCashfreeOrder, verifyCashfreePayment } = require("../controllers/paymentController");
 const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
-const {
-  getRestaurantCoordinates,
-  computeDeliveryDistanceAndFee,
-  computeDeliveryFeeForOrder,
-  getBaseDeliveryFee,
-} = require("../utils/delivery");
+const { calculateDeliveryFee, getBaseDeliveryFee } = require("../utils/delivery");
 const { isRestaurantOpenNow } = require("../utils/openingHours");
 const { handleError } = require("../utils/httpError");
 
@@ -212,15 +207,16 @@ const validatePublicOrder = async (req, res, next) => {
     let deliveryFee = 0;
     let deliveryDistanceKm = 0;
     if (orderType === "delivery") {
-      const address = req.body.deliveryAddress || {};
-      // The customer's coordinates are the authoritative delivery location.
-      // Only a house/flat/shop number is required as a human-readable drop
-      // point; city/state/pincode are optional because they cannot be derived
-      // without a geocoder and must never block an order.
-      if (!String(address.line1 || "").trim()) {
+      const address = req.body.deliveryAddress;
+      if (
+        !address ||
+        !String(address.line1 || "").trim() ||
+        !String(address.city || "").trim() ||
+        !String(address.state || "").trim()
+      ) {
         return res.status(400).json({
           success: false,
-          message: "A house, flat, or shop number is required for delivery",
+          message: "A complete delivery address is required",
         });
       }
       if (!String(req.body.customerPhone || "").trim()) {
@@ -229,23 +225,25 @@ const validatePublicOrder = async (req, res, next) => {
           message: "Phone number is required for delivery",
         });
       }
-      // The distance and delivery fee are always computed server-side from the
-      // customer's coordinates and the restaurant's configured location. Any
-      // client-supplied distanceKm / deliveryFee is ignored.
-      const delivery = await computeDeliveryFeeForOrder({
-        latitude: address.latitude,
-        longitude: address.longitude,
-      });
-      deliveryFee = delivery.deliveryFee;
-      deliveryDistanceKm = delivery.distanceKm;
+      // Delivery distance is provided by the customer in kilometres and is the
+      // single source of truth for the fee. The server still validates it and
+      // applies the configured base/minimum fee (delivery_fee) as a floor.
+      const distanceKm = Number(address.distanceKm);
+      if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Delivery distance (km) is required",
+        });
+      }
+      const baseFee = await getBaseDeliveryFee();
+      deliveryFee = Math.max(baseFee, calculateDeliveryFee(distanceKm));
+      deliveryDistanceKm = distanceKm;
       req.body.deliveryAddress = {
         line1: String(address.line1).trim(),
         line2: String(address.line2 || "").trim() || undefined,
-        city: String(address.city || "").trim() || undefined,
-        state: String(address.state || "").trim() || undefined,
+        city: String(address.city).trim(),
+        state: String(address.state).trim(),
         pincode: String(address.pincode || "").trim() || undefined,
-        latitude: Number(address.latitude),
-        longitude: Number(address.longitude),
         distanceKm: deliveryDistanceKm,
       };
     }
@@ -303,22 +301,11 @@ const getOrderEstimate = async (req, res) => {
     let deliveryFee = 0;
     let deliveryDistanceKm = 0;
     if (orderType === "delivery") {
-      const lat = Number(deliveryAddress?.latitude);
-      const lng = Number(deliveryAddress?.longitude);
-      const restaurant = await getRestaurantCoordinates();
-      if (
-        Number.isFinite(lat) &&
-        Number.isFinite(lng) &&
-        lat >= -90 &&
-        lat <= 90 &&
-        lng >= -180 &&
-        lng <= 180 &&
-        restaurant
-      ) {
-        const delivery = computeDeliveryDistanceAndFee(lat, lng, restaurant);
+      const distanceKm = Number(deliveryAddress?.distanceKm);
+      if (Number.isFinite(distanceKm) && distanceKm > 0) {
         const baseFee = await getBaseDeliveryFee();
-        deliveryDistanceKm = delivery.distanceKm;
-        deliveryFee = Math.max(baseFee, delivery.deliveryFee);
+        deliveryDistanceKm = distanceKm;
+        deliveryFee = Math.max(baseFee, calculateDeliveryFee(distanceKm));
       }
     }
 

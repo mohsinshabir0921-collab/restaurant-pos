@@ -19,11 +19,21 @@ const toDateInput = (date) => {
 const addMinutes = (date, minutes) => new Date(date.getTime() + minutes * 60000);
 
 // Progressive delivery rate schedule published in the UI (first 5 km ₹10/km,
-// then ₹15/km). The server calculates the distance and fee from the customer's
-// detected location and remains the single source of truth for the final
-// amount. These constants only render the published rate schedule as a hint.
+// then ₹15/km). The server is the single source of truth for the final fee;
+// the customer supplies the delivery distance in km and these constants only
+// render the published rate schedule as a hint.
 const DELIVERY_RATE_FIRST_5_KM = 10;
 const DELIVERY_RATE_AFTER_5_KM = 15;
+
+// Client-side fallback used only when the authoritative server estimate has
+// not yet loaded. The server remains the source of truth for the final fee.
+const fallbackDeliveryFee = (distanceKm) => {
+  const km = Number(distanceKm);
+  if (!Number.isFinite(km) || km <= 0) return 0;
+  return Math.round(
+    Math.min(km, 5) * DELIVERY_RATE_FIRST_5_KM + Math.max(0, km - 5) * DELIVERY_RATE_AFTER_5_KM
+  );
+};
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -51,11 +61,9 @@ export default function CheckoutPage() {
     state: "",
     pincode: "",
   });
-  // Detected customer coordinates (browser geolocation). Sent to the server,
-  // which calculates the delivery distance and fee from these coordinates.
-  const [customerLocation, setCustomerLocation] = useState(null);
-  const [locating, setLocating] = useState(false);
-  const [locationError, setLocationError] = useState(null);
+  // Customer-entered delivery distance in kilometres. The server is the source
+  // of truth for the fee; this drives the live estimate and a client fallback.
+  const [deliveryDistanceKm, setDeliveryDistanceKm] = useState("");
 
   const [orderNote, setOrderNote] = useState("");
 
@@ -103,51 +111,20 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderType]);
 
-  // Location permission is only requested when the customer clicks the button.
-  const handleUseMyLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError("Location detection is not supported by this browser");
-      return;
-    }
-    setLocating(true);
-    setLocationError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setCustomerLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-        setLocating(false);
-      },
-      (err) => {
-        setLocating(false);
-        const message =
-          err.code === err.PERMISSION_DENIED
-            ? "Location permission was denied. Please allow location access to calculate your delivery fee."
-            : err.code === err.POSITION_UNAVAILABLE
-            ? "Your location is currently unavailable. Please try again."
-            : err.code === err.TIMEOUT
-            ? "Location detection timed out. Please try again."
-            : "We couldn't detect your location. Please try again.";
-        setLocationError(message);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 }
-    );
-  };
-
   const estimateEnabled = !isEmpty;
+
+  const deliveryState = deliveryAddress.state?.trim();
 
   const estimatePayloadDelivery = useMemo(
     () =>
       effectiveOrderType === "delivery"
         ? {
             ...deliveryAddress,
-            ...(customerLocation
-              ? { latitude: customerLocation.latitude, longitude: customerLocation.longitude }
-              : {}),
+            state: deliveryState,
+            distanceKm: deliveryDistanceKm ? Number(deliveryDistanceKm) : undefined,
           }
         : undefined,
-    [effectiveOrderType, deliveryAddress, customerLocation]
+    [effectiveOrderType, deliveryAddress, deliveryState, deliveryDistanceKm]
   );
 
   const { estimate, loading: estimateLoading, error: estimateError } = useEstimate({
@@ -164,6 +141,8 @@ export default function CheckoutPage() {
   // the server calculates it from the detected location.
   const displayEstimate = useMemo(() => {
     if (estimate) return estimate;
+    const distanceKm = Number(deliveryDistanceKm);
+    const deliveryFee = effectiveOrderType === "delivery" ? fallbackDeliveryFee(distanceKm) : 0;
     const couponDiscount = Number(appliedCoupon?.discount) || 0;
     return {
       subtotal,
@@ -174,12 +153,12 @@ export default function CheckoutPage() {
       sgst: 0,
       igst: 0,
       serviceCharge: 0,
-      deliveryFee: 0,
-      deliveryDistanceKm: 0,
-      total: subtotal - couponDiscount,
+      deliveryFee,
+      deliveryDistanceKm: deliveryFee > 0 ? distanceKm : 0,
+      total: subtotal - couponDiscount + deliveryFee,
       estimateOnly: true,
     };
-  }, [estimate, subtotal, appliedCoupon]);
+  }, [estimate, subtotal, effectiveOrderType, deliveryDistanceKm, appliedCoupon]);
 
   const couponOrderAmount = displayEstimate.subtotal;
 
@@ -232,10 +211,12 @@ export default function CheckoutPage() {
     }
 
     if (effectiveOrderType === "delivery") {
-      if (!customerLocation)
-        return "Please use 'Use my current location' so we can calculate your delivery distance and fee";
-      if (!deliveryAddress.line1.trim())
-        return "Please enter your house / flat / shop number for delivery";
+      if (!deliveryAddress.line1.trim()) return "Please enter your street address";
+      if (!deliveryAddress.city.trim()) return "Please enter your city";
+      if (!deliveryState) return "Please enter your state";
+      const distanceKm = Number(deliveryDistanceKm);
+      if (!deliveryDistanceKm.trim() || !Number.isFinite(distanceKm) || distanceKm <= 0)
+        return "Please enter your delivery distance in km";
     }
 
     if (!paymentMethod) return "Please choose a payment method";
@@ -264,11 +245,10 @@ export default function CheckoutPage() {
           ? {
               line1: deliveryAddress.line1.trim(),
               line2: deliveryAddress.line2.trim() || undefined,
-              city: deliveryAddress.city.trim() || undefined,
-              state: deliveryAddress.state.trim() || undefined,
+              city: deliveryAddress.city.trim(),
+              state: deliveryAddress.state.trim(),
               pincode: deliveryAddress.pincode.trim() || undefined,
-              latitude: customerLocation.latitude,
-              longitude: customerLocation.longitude,
+              distanceKm: deliveryDistanceKm ? Number(deliveryDistanceKm) : undefined,
             }
           : undefined,
       notes: orderNote.trim() || undefined,
@@ -479,62 +459,80 @@ export default function CheckoutPage() {
                 </h2>
                 <div className="form-grid">
                   <div className="form-field span-2">
-                    <label htmlFor="addr-location">Delivery Location *</label>
-                    <div className="location-detect">
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-location"
-                        onClick={handleUseMyLocation}
-                        disabled={locating}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-                          <circle cx="12" cy="10" r="3" />
-                        </svg>
-                        {locating ? "Detecting your location…" : "Use My Current Location"}
-                      </button>
-                      {customerLocation && !locating && (
-                        <span className="location-detected">
-                          {displayEstimate.deliveryDistanceKm
-                            ? `Location detected · ${displayEstimate.deliveryDistanceKm} km from the restaurant`
-                            : "Location detected"}
-                        </span>
-                      )}
-                    </div>
-                    {locationError && <p className="field-error">{locationError}</p>}
-                    {customerLocation && !locating && (
-                      <p className="field-hint">
-                        Location detected. Your exact coordinates are used to calculate the delivery distance and fee.
-                      </p>
-                    )}
-                  </div>
-                  <div className="form-field span-2">
-                    <label htmlFor="addr-line1">House / Flat / Shop Number *</label>
+                    <label htmlFor="addr-line1">Street Address *</label>
                     <input
                       id="addr-line1"
                       type="text"
                       value={deliveryAddress.line1}
                       onChange={(e) => setDeliveryAddress((a) => ({ ...a, line1: e.target.value }))}
-                      placeholder="e.g. 12B, Rose Villa"
+                      placeholder="House no, street, area"
                       autoComplete="address-line1"
                       required
                     />
                   </div>
                   <div className="form-field span-2">
-                    <label htmlFor="addr-line2">Landmark / Delivery Instructions (optional)</label>
+                    <label htmlFor="addr-line2">Apartment / Landmark (optional)</label>
                     <input
                       id="addr-line2"
                       type="text"
                       value={deliveryAddress.line2}
                       onChange={(e) => setDeliveryAddress((a) => ({ ...a, line2: e.target.value }))}
-                      placeholder="e.g. Near City Mall, ring the bell"
+                      placeholder="Flat, building, landmark"
                       autoComplete="address-line2"
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="addr-city">City *</label>
+                    <input
+                      id="addr-city"
+                      type="text"
+                      value={deliveryAddress.city}
+                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, city: e.target.value }))}
+                      autoComplete="address-level2"
+                      required
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="addr-state">State *</label>
+                    <input
+                      id="addr-state"
+                      type="text"
+                      value={deliveryAddress.state}
+                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, state: e.target.value }))}
+                      placeholder="e.g. Delhi"
+                      autoComplete="address-level1"
+                      required
+                    />
+                  </div>
+                  <div className="form-field span-2">
+                    <label htmlFor="addr-pincode">PIN Code (optional)</label>
+                    <input
+                      id="addr-pincode"
+                      type="text"
+                      inputMode="numeric"
+                      value={deliveryAddress.pincode}
+                      onChange={(e) => setDeliveryAddress((a) => ({ ...a, pincode: e.target.value }))}
+                      placeholder="e.g. 110001"
+                      autoComplete="postal-code"
+                    />
+                  </div>
+                  <div className="form-field span-2">
+                    <label htmlFor="addr-distance">Delivery Distance (km) *</label>
+                    <input
+                      id="addr-distance"
+                      type="number"
+                      inputMode="decimal"
+                      min="0.5"
+                      step="0.5"
+                      value={deliveryDistanceKm}
+                      onChange={(e) => setDeliveryDistanceKm(e.target.value)}
+                      placeholder="e.g. 4"
+                      required
                     />
                   </div>
                 </div>
                 <p className="field-hint">
-                  We use your location to calculate the delivery distance and fee
-                  ({formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond).
+                  Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond.
                 </p>
               </section>
             )}

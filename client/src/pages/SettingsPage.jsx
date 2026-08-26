@@ -18,16 +18,7 @@ const SETTING_GROUPS = [
   { key: "general", label: "General", icon: <IconSettings size={17} /> },
 ];
 
-// Restaurant coordinates are rendered as decimal number inputs with valid
-// lat/lng ranges. Values are never hardcoded here — they come from and persist
-// through the existing settings API.
-const COORDINATE_FIELDS = {
-  restaurant_latitude: { label: "Restaurant Latitude", min: -90, max: 90 },
-  restaurant_longitude: { label: "Restaurant Longitude", min: -180, max: 180 },
-};
-
 const getLabel = (key) =>
-  COORDINATE_FIELDS[key]?.label ||
   key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
 export default function SettingsPage() {
@@ -37,6 +28,8 @@ export default function SettingsPage() {
   const [error, setError] = useState("");
   const [activeGroup, setActiveGroup] = useState("restaurant");
   const [formData, setFormData] = useState({});
+  const [testMsg, setTestMsg] = useState("");
+  const [testing, setTesting] = useState(false);
 
   const fetchSettings = async () => {
     try {
@@ -91,8 +84,22 @@ export default function SettingsPage() {
     }
   };
 
+  const handleTestPrint = async () => {
+    setTesting(true);
+    setTestMsg("");
+    setError("");
+    try {
+      const res = await settingsAPI.testPrinter();
+      if (res.data?.success) setTestMsg("Test receipt sent to the thermal printer.");
+      else setError(res.data?.message || "Test print failed");
+    } catch (err) {
+      setError(err.response?.data?.message || "Test print failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const getInputType = (key, value) => {
-    if (COORDINATE_FIELDS[key]) return "coordinate";
     if (typeof value === "boolean") return "checkbox";
     if (typeof value === "number") return "number";
     if (key.includes("email")) return "email";
@@ -113,6 +120,7 @@ export default function SettingsPage() {
       </div>
 
       {error && <div className="toast error">{error}</div>}
+      {testMsg && <div className="toast success">{testMsg}</div>}
 
       <div className="settings-layout">
         <aside className="settings-sidebar">
@@ -139,6 +147,11 @@ export default function SettingsPage() {
             <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
               {saving ? "Saving..." : "Save Changes"}
             </button>
+            {activeGroup === "printing" && (
+              <button className="btn btn-secondary" onClick={handleTestPrint} disabled={testing}>
+                {testing ? "Printing..." : "Test Print"}
+              </button>
+            )}
           </div>
 
           <div className="settings-form">
@@ -169,18 +182,6 @@ export default function SettingsPage() {
                       />
                       <span className="slider"></span>
                     </label>
-                  ) : inputType === "coordinate" ? (
-                    <div className="setting-coordinate">
-                      <input
-                        type="number"
-                        step="any"
-                        min={COORDINATE_FIELDS[key].min}
-                        max={COORDINATE_FIELDS[key].max}
-                        value={value}
-                        onChange={e => handleChange(key, e.target.value)}
-                      />
-                      <span className="setting-hint">Used to calculate the delivery distance</span>
-                    </div>
                   ) : inputType === "number" ? (
                     <input
                       type="number"

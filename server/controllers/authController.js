@@ -33,7 +33,7 @@ const generateRefreshToken = (user) => {
 const registerUser = async (req, res) => {
   try {
     const { name, email, password, role = "cashier", isActive } = req.body;
-    const ALLOWED_ROLES = ["admin", "cashier", "kitchen", "delivery"];
+    const ALLOWED_ROLES = ["admin", "cashier", "kitchen", "delivery", "waiter"];
 
     const trimmedName = String(name || "").trim();
     const normalizedEmail = String(email || "").trim().toLowerCase();
@@ -372,7 +372,7 @@ const updateStaff = async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const ALLOWED_ROLES = ["admin", "cashier", "kitchen", "delivery"];
+    const ALLOWED_ROLES = ["admin", "cashier", "kitchen", "delivery", "waiter"];
 
     const user = await User.findById(id);
     if (!user) {

@@ -21,10 +21,6 @@ const stubModule = (absPath, exports) => {
   };
 };
 
-const RESTAURANT = { latitude: 28.6139, longitude: 77.209 };
-// ~3.9 km straight-line east of the restaurant at the same latitude.
-const CUSTOMER = { latitude: 28.6139, longitude: 77.249 };
-
 const createStubs = () => {
   const store = {
     settings: {},
@@ -122,65 +118,28 @@ test("delivery fee follows the progressive schedule unchanged", () => {
   assert.equal(delivery.calculateDeliveryFee("4"), 40);
 });
 
-test("haversine returns straight-line distance in km", () => {
-  const { delivery } = freshLoad();
-  assert.equal(delivery.haversineDistanceKm(28.6, 77.2, 28.6, 77.2), 0);
-  const kmPerDegreeLat = delivery.haversineDistanceKm(0, 0, 1, 0);
-  assert.ok(kmPerDegreeLat > 110 && kmPerDegreeLat < 112, "1 degree of latitude ≈ 111 km");
-  const kmPerDegreeLngAtEquator = delivery.haversineDistanceKm(0, 0, 0, 1);
-  assert.ok(kmPerDegreeLngAtEquator > 110 && kmPerDegreeLngAtEquator < 112);
-});
-
-// ---------------------------------------------------------------------------
-// Server-side delivery fee computation
-// ---------------------------------------------------------------------------
-
-test("delivery fee computation requires configured restaurant coordinates", async () => {
-  const { delivery } = freshLoad();
-  await assert.rejects(
-    () => delivery.computeDeliveryFeeForOrder({ latitude: CUSTOMER.latitude, longitude: CUSTOMER.longitude }),
-    (err) => err.status === 400 && /configured/.test(err.message)
-  );
-});
-
-test("delivery fee computation rejects invalid customer coordinates", async () => {
+test("base delivery fee acts as a floor on the distance-based fee", async () => {
   const d = freshLoad();
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
-  await assert.rejects(
-    () => deliveryReject(d, "not-a-number", CUSTOMER.longitude),
-    (err) => err.status === 400
-  );
-  await assert.rejects(
-    () => deliveryReject(d, CUSTOMER.latitude, 500),
-    (err) => err.status === 400
-  );
-  async function deliveryReject(scope, lat, lng) {
-    return scope.delivery.computeDeliveryFeeForOrder({ latitude: lat, longitude: lng });
-  }
+  d.store.settings = { delivery_fee: 50 };
+  assert.equal(await d.delivery.getBaseDeliveryFee(), 50);
+  // 3 km → ₹30 but the base fee of ₹50 wins.
+  assert.equal(Math.max(50, d.delivery.calculateDeliveryFee(3)), 50);
+  // 8 km → ₹95, above the ₹50 floor.
+  assert.equal(Math.max(50, d.delivery.calculateDeliveryFee(8)), 95);
 });
 
-test("delivery fee is computed from customer coords vs restaurant coords", async () => {
-  const d = freshLoad();
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
-
-  // Identical coordinates → zero distance, zero fee.
-  const zero = await d.delivery.computeDeliveryFeeForOrder({ latitude: RESTAURANT.latitude, longitude: RESTAURANT.longitude });
-  assert.equal(zero.distanceKm, 0);
-  assert.equal(zero.deliveryFee, 0);
-
-  const result = await d.delivery.computeDeliveryFeeForOrder({ latitude: CUSTOMER.latitude, longitude: CUSTOMER.longitude });
-  assert.ok(result.distanceKm > 3.5 && result.distanceKm < 4.5, `distance was ${result.distanceKm}`);
-  assert.equal(result.deliveryFee, 39, "3.9 km → ₹39 (first 5 km at ₹10/km)");
+test("getBaseDeliveryFee defaults to 0 (pure distance-based pricing)", async () => {
+  const { delivery } = freshLoad();
+  assert.equal(await delivery.getBaseDeliveryFee(), 0);
 });
 
 // ---------------------------------------------------------------------------
-// validatePublicOrder: client-supplied distance/fee must never be trusted
+// validatePublicOrder: customer-supplied distanceKm is the source of truth
 // ---------------------------------------------------------------------------
 
-test("delivery order uses server-calculated fee and distance, ignoring client values", async () => {
+test("delivery order uses the customer-supplied distanceKm for fee and distance", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -191,13 +150,13 @@ test("delivery order uses server-calculated fee and distance, ignoring client va
     items: [{ menuItemId: String(itemId), qty: 1 }],
     deliveryAddress: {
       line1: "1 Main St",
+      line2: "Near City Mall",
       city: "Delhi",
       state: "Delhi",
-      distanceKm: 0.5,
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
+      pincode: "110001",
+      distanceKm: 4.2,
     },
-    deliveryFee: 5,
+    deliveryFee: 999,
   });
   const res = makeRes();
   let nexted = false;
@@ -206,20 +165,20 @@ test("delivery order uses server-calculated fee and distance, ignoring client va
   });
 
   assert.equal(nexted, true, "valid delivery order passes validation");
-  assert.equal(req.body.deliveryFee, 39, "client-supplied ₹5 fee is replaced by server fee");
-  assert.equal(req.body.deliveryAddress.distanceKm, 3.9, "client-supplied 0.5 km is replaced by server distance");
-  assert.equal(req.body.deliveryDistanceKm, 3.9);
-  assert.equal(req.body.deliveryAddress.latitude, CUSTOMER.latitude);
-  assert.equal(req.body.deliveryAddress.longitude, CUSTOMER.longitude);
+  assert.equal(req.body.deliveryFee, 42, "fee is recomputed from distanceKm (4.2 km = ₹42)");
+  assert.equal(req.body.deliveryAddress.distanceKm, 4.2, "distanceKm is preserved");
+  assert.equal(req.body.deliveryDistanceKm, 4.2);
+  assert.equal(req.body.deliveryAddress.latitude, undefined, "no latitude is stored");
+  assert.equal(req.body.deliveryAddress.longitude, undefined, "no longitude is stored");
   assert.equal(req.body.deliveryAddress.line1, "1 Main St");
+  assert.equal(req.body.deliveryAddress.line2, "Near City Mall", "landmark is preserved");
   assert.equal(req.body.deliveryAddress.city, "Delhi");
   assert.equal(req.body.deliveryAddress.state, "Delhi");
 });
 
-test("delivery order without customer location is rejected", async () => {
+test("delivery order is rejected when distanceKm is missing", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -232,12 +191,12 @@ test("delivery order without customer location is rejected", async () => {
   const res = makeRes();
   await validatePublicOrder(req, res, () => {});
   assert.equal(res._status, 400);
+  assert.match(res._body.message, /distance \(km\)/i);
 });
 
-test("delivery order succeeds with house number and coordinates, city/state optional", async () => {
+test("delivery order requires city and state", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -245,30 +204,32 @@ test("delivery order succeeds with house number and coordinates, city/state opti
     paymentMethod: "cod",
     customerPhone: "9876543210",
     items: [{ menuItemId: String(itemId), qty: 1 }],
-    deliveryAddress: {
-      line1: "12B, Rose Villa",
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
-    },
+    deliveryAddress: { line1: "12B, Rose Villa", distanceKm: 4, city: "", state: "" },
   });
   const res = makeRes();
+  await validatePublicOrder(req, res, () => {});
+  assert.equal(res._status, 400, "order is rejected without city/state");
+
+  const okReq = makeReq({
+    orderType: "delivery",
+    paymentMethod: "cod",
+    customerPhone: "9876543210",
+    items: [{ menuItemId: String(itemId), qty: 1 }],
+    deliveryAddress: { line1: "12B, Rose Villa", city: "Delhi", state: "Delhi", distanceKm: 4 },
+  });
+  const okRes = makeRes();
   let nexted = false;
-  await validatePublicOrder(req, res, () => {
+  await validatePublicOrder(okReq, okRes, () => {
     nexted = true;
   });
-
-  assert.equal(nexted, true, "order passes with only a house number and coordinates");
-  assert.equal(req.body.deliveryFee, 39, "server-calculated fee is applied");
-  assert.equal(req.body.deliveryAddress.distanceKm, 3.9);
-  assert.equal(req.body.deliveryAddress.line1, "12B, Rose Villa");
-  assert.equal(req.body.deliveryAddress.city, undefined);
-  assert.equal(req.body.deliveryAddress.state, undefined);
+  assert.equal(nexted, true, "order passes once city and state are provided");
+  assert.equal(okReq.body.deliveryAddress.city, "Delhi");
+  assert.equal(okReq.body.deliveryAddress.state, "Delhi");
 });
 
-test("delivery order without a house number is rejected with a clear message", async () => {
+test("delivery order without a street address is rejected with a clear message", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -280,19 +241,19 @@ test("delivery order without a house number is rejected with a clear message", a
       line1: "   ",
       city: "Delhi",
       state: "Delhi",
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
+      distanceKm: 4,
     },
   });
   const res = makeRes();
   await validatePublicOrder(req, res, () => {});
   assert.equal(res._status, 400);
-  assert.match(res._body.message, /house, flat, or shop number/);
+  assert.match(res._body.message, /complete delivery address/i);
 });
 
-test("delivery order is rejected when the restaurant has no configured location", async () => {
+test("client-supplied deliveryFee is ignored and recomputed from distanceKm", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
+  d.store.settings = { delivery_fee: 50 };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -304,41 +265,9 @@ test("delivery order is rejected when the restaurant has no configured location"
       line1: "1 Main St",
       city: "Delhi",
       state: "Delhi",
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
+      distanceKm: 3, // 3 km → ₹30, but base fee of ₹50 wins
     },
-  });
-  const res = makeRes();
-  await validatePublicOrder(req, res, () => {});
-  assert.equal(res._status, 400);
-  assert.match(res._body.message, /configured/);
-});
-
-test("public users cannot override the restaurant's configured coordinates", async () => {
-  const d = freshLoad();
-  const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
-  // Restaurant coordinates always come from Settings, never from the client.
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
-  const itemId = seedMenu(d.store);
-
-  const req = makeReq({
-    orderType: "delivery",
-    paymentMethod: "cod",
-    customerPhone: "9876543210",
-    items: [{ menuItemId: String(itemId), qty: 1 }],
-    // Client attempts to spoof the restaurant location to the customer's own
-    // coordinates (which would zero the distance) plus a bogus top-level key.
-    deliveryAddress: {
-      line1: "1 Main St",
-      city: "Delhi",
-      state: "Delhi",
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
-      restaurant_latitude: CUSTOMER.latitude,
-      restaurant_longitude: CUSTOMER.longitude,
-    },
-    restaurant_latitude: CUSTOMER.latitude,
-    restaurant_longitude: CUSTOMER.longitude,
+    deliveryFee: 999,
   });
   const res = makeRes();
   let nexted = false;
@@ -347,11 +276,11 @@ test("public users cannot override the restaurant's configured coordinates", asy
   });
 
   assert.equal(nexted, true, "order still passes validation");
-  assert.equal(req.body.deliveryFee, 39, "fee is computed from Settings coordinates, not the spoofed ones");
-  assert.equal(req.body.deliveryAddress.distanceKm, 3.9);
+  assert.equal(req.body.deliveryFee, 50, "fee honours the base-fee floor, not the client value");
+  assert.equal(req.body.deliveryAddress.distanceKm, 3);
 });
 
-test("takeaway order has no delivery fee and requires no location", async () => {
+test("takeaway order has no delivery fee and requires no distance", async () => {
   const d = freshLoad();
   const [validatePublicOrder] = getRouteHandlers(d.publicRoutes, "post", "/orders");
   const itemId = seedMenu(d.store);
@@ -367,7 +296,7 @@ test("takeaway order has no delivery fee and requires no location", async () => 
     nexted = true;
   });
 
-  assert.equal(nexted, true, "takeaway order passes validation without location");
+  assert.equal(nexted, true, "takeaway order passes validation without distance");
   assert.equal(req.body.deliveryFee, 0);
   assert.equal(req.body.deliveryDistanceKm, 0);
 });
@@ -376,10 +305,9 @@ test("takeaway order has no delivery fee and requires no location", async () => 
 // getOrderEstimate: authoritative fee display
 // ---------------------------------------------------------------------------
 
-test("estimate returns server-calculated delivery fee and distance", async () => {
+test("estimate returns fee and distance from the supplied distanceKm", async () => {
   const d = freshLoad();
   const [getOrderEstimate] = getRouteHandlers(d.publicRoutes, "post", "/order-estimate");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
@@ -387,23 +315,20 @@ test("estimate returns server-calculated delivery fee and distance", async () =>
     items: [{ menuItemId: String(itemId), qty: 1 }],
     deliveryAddress: {
       state: "Delhi",
-      latitude: CUSTOMER.latitude,
-      longitude: CUSTOMER.longitude,
-      distanceKm: 0.5,
+      distanceKm: 4.2,
     },
   });
   const res = makeRes();
   await getOrderEstimate(req, res);
 
   assert.equal(res._status, 200);
-  assert.equal(res._body.estimate.deliveryFee, 39, "client-supplied 0.5 km is ignored");
-  assert.equal(res._body.estimate.deliveryDistanceKm, 3.9);
+  assert.equal(res._body.estimate.deliveryFee, 42, "4.2 km → ₹42");
+  assert.equal(res._body.estimate.deliveryDistanceKm, 4.2);
 });
 
-test("estimate shows zero delivery fee when customer location is missing", async () => {
+test("estimate shows zero delivery fee when distanceKm is missing", async () => {
   const d = freshLoad();
   const [getOrderEstimate] = getRouteHandlers(d.publicRoutes, "post", "/order-estimate");
-  d.store.settings = { restaurant_latitude: RESTAURANT.latitude, restaurant_longitude: RESTAURANT.longitude };
   const itemId = seedMenu(d.store);
 
   const req = makeReq({
