@@ -6,6 +6,7 @@ import AnnouncementBar from "./AnnouncementBar";
 import Header from "./Header";
 import Footer from "./Footer";
 import CartDrawer from "./CartDrawer";
+import SeoManager from "./SeoManager";
 import "../public-dark.css";
 
 export default function WebsiteLayout() {
@@ -15,6 +16,7 @@ export default function WebsiteLayout() {
 
   return (
     <ToastProvider>
+      <SeoManager />
       <div className="website-layout theme-dark">
         <a className="skip-link" href="#main-content">
           Skip to content
