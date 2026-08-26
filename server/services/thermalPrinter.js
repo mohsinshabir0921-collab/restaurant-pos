@@ -3,10 +3,10 @@ const Settings = require("../models/Settings");
 
 const DEFAULT_PORT = 9100;
 const CONNECT_TIMEOUT = 5000;
-const COLS = 42;
-const ITEM_W = 17;
-const QTY_W = 4;
-const RATE_W = 9;
+const COLS = 32;
+const ITEM_W = 10;
+const QTY_W = 3;
+const RATE_W = 7;
 const AMT_W = 9;
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ function getAddons(item) {
 }
 
 // ---------------------------------------------------------------------------
-// Column / wrapping helpers for 80mm fixed layout
+// Column / wrapping helpers for 58mm thermal receipt
 // ---------------------------------------------------------------------------
 function padRight(str, len) {
   str = sanitize(str);
@@ -176,8 +176,12 @@ async function printKOT(order) {
   printer.bold(true);
   printer.println("KITCHEN ORDER TICKET");
   printer.bold(false);
+  printer.bold(true);
   printer.println("#" + (o.orderNumber || o._id || ""));
+  printer.bold(false);
+  printer.bold(true);
   printer.println((o.orderType || "").toUpperCase() || "ORDER");
+  printer.bold(false);
   if (o.orderType === "dinein") {
     printer.println("Table: " + (o.tableNo || (o.table && o.table.number) || "-"));
     printer.println("Waiter: " + (o.servedBy && o.servedBy.name ? o.servedBy.name : "-"));
@@ -198,7 +202,9 @@ async function printKOT(order) {
   });
 
   printer.drawLine();
+  printer.bold(true);
   printer.println("Status: " + (o.orderStatus || "-"));
+  printer.bold(false);
   printer.println("*** END KOT ***");
   printer.cut();
   await printer.execute();
@@ -226,12 +232,18 @@ async function printInvoice(order) {
   printer.alignLeft();
   printer.drawLine();
 
+  printer.bold(true);
   printer.println("TAX INVOICE");
+  printer.bold(false);
+  printer.bold(true);
   printer.println("Bill No: " + (o.orderNumber || o._id || ""));
+  printer.bold(false);
   printer.println("Date: " + new Date(o.createdAt).toLocaleString("en-IN"));
   printer.drawLine();
 
+  printer.bold(true);
   printer.println("Type: " + (o.orderType || "").toUpperCase());
+  printer.bold(false);
   if (o.orderType === "dinein") {
     printer.println("Table: " + (o.tableNo || (o.table && o.table.number) || "-"));
     printer.println("Waiter: " + (o.servedBy && o.servedBy.name ? o.servedBy.name : "-"));
@@ -250,22 +262,26 @@ async function printInvoice(order) {
   }
   printer.drawLine();
 
+  printer.bold(true);
   printer.println(
     padRight("Item", ITEM_W) + " " +
     padLeft("Qty", QTY_W) + " " +
     padLeft("Rate", RATE_W) + " " +
     padLeft("Amt", AMT_W)
   );
+  printer.bold(false);
   (o.items || []).forEach((item) => {
     const rate = Number(item.price || 0);
     const amt = rate * Number(item.qty || 0);
     const nameLines = wrapText(item.name, ITEM_W);
+    printer.bold(true);
     printer.println(
       padRight(nameLines[0], ITEM_W) + " " +
       padLeft(String(item.qty), QTY_W) + " " +
       padLeft(money(rate), RATE_W) + " " +
       padLeft(money(amt), AMT_W)
     );
+    printer.bold(false);
     for (let i = 1; i < nameLines.length; i++) {
       printer.println(padRight(nameLines[i], ITEM_W));
     }
@@ -283,33 +299,56 @@ async function printInvoice(order) {
   const taxTotal = Number(o.tax ?? (cgst + sgst + igst));
   const hasLoyalty = Number(o.loyaltyPointsUsed) > 0;
 
+  printer.bold(true);
   printer.println(padRight("Subtotal", COLS - AMT_W - 1) + " " + padLeft(money(o.subtotal), AMT_W));
+  printer.bold(false);
   if (Number(o.discount) > 0 || o.couponCode) {
     printer.println(padRight("Discount" + (o.couponCode ? " (" + o.couponCode + ")" : ""), COLS - AMT_W - 1) + " " + padLeft("-" + money(o.discount), AMT_W));
   }
-  if (cgst > 0) printer.println(padRight("CGST", COLS - AMT_W - 1) + " " + padLeft(money(cgst), AMT_W));
-  if (sgst > 0) printer.println(padRight("SGST", COLS - AMT_W - 1) + " " + padLeft(money(sgst), AMT_W));
-  if (igst > 0) printer.println(padRight("IGST", COLS - AMT_W - 1) + " " + padLeft(money(igst), AMT_W));
+  if (cgst > 0) {
+    printer.bold(true);
+    printer.println(padRight("CGST", COLS - AMT_W - 1) + " " + padLeft(money(cgst), AMT_W));
+    printer.bold(false);
+  }
+  if (sgst > 0) {
+    printer.bold(true);
+    printer.println(padRight("SGST", COLS - AMT_W - 1) + " " + padLeft(money(sgst), AMT_W));
+    printer.bold(false);
+  }
+  if (igst > 0) {
+    printer.bold(true);
+    printer.println(padRight("IGST", COLS - AMT_W - 1) + " " + padLeft(money(igst), AMT_W));
+    printer.bold(false);
+  }
   if (!cgst && !sgst && !igst && taxTotal > 0) {
+    printer.bold(true);
     printer.println(padRight("Tax", COLS - AMT_W - 1) + " " + padLeft(money(taxTotal), AMT_W));
+    printer.bold(false);
   }
   if (Number(o.serviceCharge) > 0) {
-    printer.println(padRight("Service Charge", COLS - AMT_W - 1) + " " + padLeft(money(o.serviceCharge), AMT_W));
+    printer.bold(true);
+    printer.println(padRight("Svc Charge", COLS - AMT_W - 1) + " " + padLeft(money(o.serviceCharge), AMT_W));
+    printer.bold(false);
   }
   if (Number(o.deliveryFee) > 0) {
-    printer.println(padRight("Delivery Charge", COLS - AMT_W - 1) + " " + padLeft(money(o.deliveryFee), AMT_W));
+    printer.bold(true);
+    printer.println(padRight("Del Charge", COLS - AMT_W - 1) + " " + padLeft(money(o.deliveryFee), AMT_W));
+    printer.bold(false);
   }
   if (hasLoyalty) {
     printer.println(padRight("Loyalty Used", COLS - AMT_W - 1) + " " + padLeft(String(o.loyaltyPointsUsed) + " pts", AMT_W));
   }
 
+  printer.drawLine();
   printer.bold(true);
   printer.println(padRight("GRAND TOTAL", COLS - AMT_W - 1) + " " + padLeft(money(o.total), AMT_W));
   printer.bold(false);
   printer.drawLine();
 
-  printer.println("Payment Mode: " + (o.paymentMethod || "-"));
-  printer.println("Payment Status: " + (o.paymentStatus || "-"));
+  printer.bold(true);
+  printer.println("Payment: " + (o.paymentMethod || "-"));
+  printer.println("Status:  " + (o.paymentStatus || "-"));
+  printer.bold(false);
   printer.drawLine();
 
   printer.println("Amt in words: " + sanitize(numberToWords(Number(o.total || 0))));
@@ -338,7 +377,9 @@ async function printTest() {
   printer.println("thermal printing works.");
   printer.println("Host: " + target.host + ":" + target.port);
   printer.drawLine();
+  printer.bold(true);
   printer.println(padRight("Item", ITEM_W) + " " + padLeft("Qty", QTY_W) + " " + padLeft("Rate", RATE_W) + " " + padLeft("Amt", AMT_W));
+  printer.bold(false);
   printer.println(padRight("Masala Dosa", ITEM_W) + " " + padLeft("2", QTY_W) + " " + padLeft(money(80), RATE_W) + " " + padLeft(money(160), AMT_W));
   printer.drawLine();
   printer.bold(true);

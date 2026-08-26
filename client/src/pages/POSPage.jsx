@@ -55,7 +55,7 @@ const toLocalTimeInput = (d = new Date()) => {
   return `${h}:${m}`;
 };
 
-  const printStyleFor = (thermal) => ({ fontFamily: "'Courier New', Courier, monospace", fontSize: 12, color: "#000", width: thermal ? "80mm" : "100%", margin: "0 auto", lineHeight: 1.35 });
+  const printStyleFor = (thermal) => ({ fontFamily: "Arial, Helvetica, sans-serif", fontSize: thermal ? 11 : 12, color: "#000", width: thermal ? "58mm" : "100%", margin: "0 auto", lineHeight: 1.3, padding: thermal ? "2mm" : 0 });
 
   const numberToWords = (num) => {
     const n = Math.max(0, Math.round(Number(num) || 0));
@@ -76,33 +76,33 @@ const printRow = (display, flex, space) => ({ display, justifyContent: space ? "
 const KOTReceipt = ({ order, thermal = true }) => (
     <div style={printStyleFor(thermal)}>
     <div style={{ textAlign: "center" }}>
-      <h3 style={{ margin: 0, fontSize: 15 }}>KITCHEN ORDER TICKET</h3>
-      <div>#{order.orderNumber || order._id}</div>
-      <div>{order.orderType === "dinein" ? `Table: ${order.tableNo || "-"}` : order.orderType.toUpperCase()}</div>
+      <div style={{ fontWeight: 800, fontSize: 14 }}>KITCHEN ORDER TICKET</div>
+      <div style={{ fontWeight: 700 }}>#{order.orderNumber || order._id}</div>
+      <div style={{ fontWeight: 700 }}>{order.orderType === "dinein" ? `Table: ${order.tableNo || "-"}` : order.orderType.toUpperCase()}</div>
       {order.orderType === "dinein" && (
         <div>Waiter: {order.servedBy?.name || "-"}</div>
       )}
-      <div>{new Date(order.createdAt).toLocaleString()}</div>
+      <div style={{ fontSize: 10 }}>{new Date(order.createdAt).toLocaleString()}</div>
     </div>
-    <hr style={{ borderTop: "1px dashed #000" }} />
+    <div style={{ borderTop: "1px dashed #000", margin: "4px 0" }} />
     {(order.items || []).map((item, i) => {
       const size = getOrderItemSize(item);
       const addons = getOrderItemAddons(item);
       return (
-      <div key={i} style={{ marginBottom: 4 }}>
-        <div>{item.qty} x {item.name}{size ? ` [${size}]` : ""}</div>
+      <div key={i} style={{ marginBottom: 3 }}>
+        <div style={{ fontWeight: 700 }}>{item.qty} x {item.name}{size ? ` [${size}]` : ""}</div>
         {addons.length > 0 && (
-          <div style={{ paddingLeft: 8, fontSize: 12 }}>{addons.join(", ")}</div>
+          <div style={{ paddingLeft: 6, fontSize: 10 }}>{addons.join(", ")}</div>
         )}
         {item.kitchenStation && (
-          <div style={{ paddingLeft: 8, fontSize: 12 }}>Station: {item.kitchenStation}</div>
+          <div style={{ paddingLeft: 6, fontSize: 10 }}>Station: {item.kitchenStation}</div>
         )}
       </div>
       );
     })}
-    <hr style={{ borderTop: "1px dashed #000" }} />
-    <div>Status: {order.orderStatus}</div>
-    <div style={{ textAlign: "center", marginTop: 8 }}>--- END ---</div>
+    <div style={{ borderTop: "1px dashed #000", margin: "4px 0" }} />
+    <div style={{ fontWeight: 700 }}>Status: {order.orderStatus}</div>
+    <div style={{ textAlign: "center", marginTop: 6, fontWeight: 700 }}>--- END ---</div>
   </div>
 );
 
@@ -128,23 +128,23 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
     <div style={printStyleFor(thermal)}>
       {/* HEADER */}
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 0.4 }}>{restaurantName || "Restaurant"}</div>
-        {restaurantAddress && <div style={{ fontSize: 11 }}>{restaurantAddress}</div>}
-        {restaurantPhone && <div style={{ fontSize: 11 }}>Ph: {restaurantPhone}</div>}
-        {gstin && <div style={{ fontSize: 11 }}>GSTIN: {gstin}</div>}
-        {header && <div style={{ fontSize: 11, marginTop: 2 }}>{header}</div>}
+        <div style={{ fontWeight: 800, fontSize: 15 }}>{restaurantName || "Restaurant"}</div>
+        {restaurantAddress && <div style={{ fontSize: 10 }}>{restaurantAddress}</div>}
+        {restaurantPhone && <div style={{ fontSize: 10 }}>Ph: {restaurantPhone}</div>}
+        {gstin && <div style={{ fontSize: 10 }}>GSTIN: {gstin}</div>}
+        {header && <div style={{ fontSize: 10, marginTop: 1 }}>{header}</div>}
       </div>
-      <div style={{ borderTop: "1px dashed #000", borderBottom: "1px dashed #000", margin: "6px 0", padding: "4px 0", textAlign: "center" }}>
-        <div style={{ fontWeight: 700, fontSize: 13 }}>TAX INVOICE</div>
-        <div style={{ fontSize: 11 }}>Bill No: {order.orderNumber || order._id}</div>
-        <div style={{ fontSize: 11 }}>Date: {dateStr}  Time: {timeStr}</div>
+      <div style={{ borderTop: "1px dashed #000", borderBottom: "1px dashed #000", margin: "4px 0", padding: "3px 0", textAlign: "center" }}>
+        <div style={{ fontWeight: 800, fontSize: 12 }}>TAX INVOICE</div>
+        <div style={{ fontWeight: 700, fontSize: 10 }}>Bill No: {order.orderNumber || order._id}</div>
+        <div style={{ fontWeight: 700, fontSize: 10 }}>Date: {dateStr}  Time: {timeStr}</div>
       </div>
 
       {/* BILL DETAILS */}
-      <div style={{ fontSize: 11, marginBottom: 6 }}>
-        <div style={printRow("flex", {}, true)}><span>Order Type</span><span>{orderTypeLabel}</span></div>
+      <div style={{ fontSize: 10, marginBottom: 4 }}>
+        <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Order Type</span><span style={{ fontWeight: 700 }}>{orderTypeLabel}</span></div>
         {order.orderType === "dinein" && order.tableNo ? (
-          <div style={printRow("flex", {}, true)}><span>Table</span><span>{order.tableNo}</span></div>
+          <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Table</span><span style={{ fontWeight: 700 }}>{order.tableNo}</span></div>
         ) : null}
         {order.orderType === "dinein" ? (
           <div style={printRow("flex", {}, true)}><span>Waiter</span><span>{order.servedBy?.name || "-"}</span></div>
@@ -160,31 +160,31 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
         )}
         {order.orderType === "delivery" && order.deliveryAddress && (
           <div style={{ marginTop: 2 }}>
-            <div style={{ fontWeight: 700 }}>Deliver To:</div>
-            <div style={{ paddingLeft: 6 }}>{formatAddress(order.deliveryAddress)}</div>
+            <div style={{ fontWeight: 700, fontSize: 10 }}>Deliver To:</div>
+            <div style={{ paddingLeft: 4, fontSize: 10 }}>{formatAddress(order.deliveryAddress)}</div>
             {order.deliveryAddress?.distanceKm ? (
-              <div style={{ paddingLeft: 6 }}>Distance: {order.deliveryAddress.distanceKm} km</div>
+              <div style={{ paddingLeft: 4, fontSize: 10 }}>Distance: {order.deliveryAddress.distanceKm} km</div>
             ) : null}
           </div>
         )}
       </div>
 
-      <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
+      <div style={{ borderTop: "1px solid #000", margin: "3px 0" }} />
 
       {/* ITEM TABLE */}
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: "48%" }} />
-          <col style={{ width: "12%" }} />
-          <col style={{ width: "20%" }} />
-          <col style={{ width: "20%" }} />
+          <col style={{ width: "44%" }} />
+          <col style={{ width: "10%" }} />
+          <col style={{ width: "22%" }} />
+          <col style={{ width: "24%" }} />
         </colgroup>
         <thead>
           <tr style={{ borderBottom: "1px dashed #000" }}>
-            <th style={{ textAlign: "left", padding: "2px 0" }}>Particulars</th>
-            <th style={{ textAlign: "right", padding: "2px 0" }}>Qty</th>
-            <th style={{ textAlign: "right", padding: "2px 0" }}>Rate</th>
-            <th style={{ textAlign: "right", padding: "2px 0" }}>Amt</th>
+            <th style={{ textAlign: "left", padding: "2px 0", fontWeight: 700 }}>Item</th>
+            <th style={{ textAlign: "right", padding: "2px 0", fontWeight: 700 }}>Qty</th>
+            <th style={{ textAlign: "right", padding: "2px 0", fontWeight: 700 }}>Rate</th>
+            <th style={{ textAlign: "right", padding: "2px 0", fontWeight: 700 }}>Amt</th>
           </tr>
         </thead>
         <tbody>
@@ -192,67 +192,67 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
             const size = getOrderItemSize(item);
             const addons = getOrderItemAddons(item);
             return (
-              <tr key={i} style={{ borderBottom: "1px dotted #bbb" }}>
-                <td style={{ padding: "3px 4px 3px 0", verticalAlign: "top", wordBreak: "break-word", whiteSpace: "normal" }}>
+              <tr key={i} style={{ borderBottom: "1px dotted #ccc" }}>
+                <td style={{ padding: "2px 2px 2px 0", verticalAlign: "top", wordBreak: "break-word", whiteSpace: "normal" }}>
                   <div style={{ fontWeight: 700 }}>{item.name}</div>
                   {(size || addons.length > 0 || item.notes) && (
-                    <div style={{ fontSize: 10, marginTop: 1, lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 9, marginTop: 1, lineHeight: 1.2 }}>
                       {size ? <div>Size: {size}</div> : null}
                       {addons.length > 0 ? <div>Add-ons: {addons.join(", ")}</div> : null}
                       {item.notes ? <div>Note: {item.notes}</div> : null}
                     </div>
                   )}
                 </td>
-                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{item.qty}</td>
-                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{money(item.price)}</td>
-                <td style={{ textAlign: "right", padding: "3px 0", verticalAlign: "top" }}>{money((item.price || 0) * (item.qty || 0))}</td>
+                <td style={{ textAlign: "right", padding: "2px 0", verticalAlign: "top" }}>{item.qty}</td>
+                <td style={{ textAlign: "right", padding: "2px 0", verticalAlign: "top" }}>{money(item.price)}</td>
+                <td style={{ textAlign: "right", padding: "2px 0", verticalAlign: "top" }}>{money((item.price || 0) * (item.qty || 0))}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
 
-      <div style={{ borderTop: "1px solid #000", margin: "4px 0" }} />
+      <div style={{ borderTop: "1px solid #000", margin: "3px 0" }} />
 
       {/* TOTAL SECTION */}
-      <div style={{ fontSize: 11 }}>
-        <div style={printRow("flex", {}, true)}><span>Subtotal</span><span>{money(order.subtotal)}</span></div>
+      <div style={{ fontSize: 10 }}>
+        <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Subtotal</span><span style={{ fontWeight: 700 }}>{money(order.subtotal)}</span></div>
         {hasDiscount && (
           <div style={printRow("flex", {}, true)}><span>Discount{order.couponCode ? ` (${order.couponCode})` : ""}</span><span>-{money(order.discount)}</span></div>
         )}
         {hasTax && taxBreakdown > 0 && (
           <>
-            {cgst > 0 && <div style={printRow("flex", {}, true)}><span>CGST</span><span>{money(cgst)}</span></div>}
-            {sgst > 0 && <div style={printRow("flex", {}, true)}><span>SGST</span><span>{money(sgst)}</span></div>}
-            {igst > 0 && <div style={printRow("flex", {}, true)}><span>IGST</span><span>{money(igst)}</span></div>}
+            {cgst > 0 && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>CGST</span><span style={{ fontWeight: 700 }}>{money(cgst)}</span></div>}
+            {sgst > 0 && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>SGST</span><span style={{ fontWeight: 700 }}>{money(sgst)}</span></div>}
+            {igst > 0 && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>IGST</span><span style={{ fontWeight: 700 }}>{money(igst)}</span></div>}
           </>
         )}
-        {hasTax && taxBreakdown === 0 && <div style={printRow("flex", {}, true)}><span>Tax</span><span>{money(taxTotal)}</span></div>}
-        {hasServiceCharge && <div style={printRow("flex", {}, true)}><span>Service Charge</span><span>{money(order.serviceCharge)}</span></div>}
-        {hasDeliveryFee && <div style={printRow("flex", {}, true)}><span>Delivery Charge</span><span>{money(order.deliveryFee)}</span></div>}
+        {hasTax && taxBreakdown === 0 && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Tax</span><span style={{ fontWeight: 700 }}>{money(taxTotal)}</span></div>}
+        {hasServiceCharge && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Service Charge</span><span style={{ fontWeight: 700 }}>{money(order.serviceCharge)}</span></div>}
+        {hasDeliveryFee && <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Delivery Charge</span><span style={{ fontWeight: 700 }}>{money(order.deliveryFee)}</span></div>}
         {hasLoyalty && <div style={printRow("flex", {}, true)}><span>Loyalty Used</span><span>{order.loyaltyPointsUsed} pts</span></div>}
       </div>
 
-      <div style={{ borderTop: "1px solid #000", borderBottom: "2px solid #000", margin: "4px 0", padding: "4px 0", fontWeight: 800, fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+      <div style={{ borderTop: "1px solid #000", borderBottom: "2px solid #000", margin: "3px 0", padding: "3px 0", fontWeight: 800, fontSize: 12, display: "flex", justifyContent: "space-between" }}>
         <span>GRAND TOTAL</span><span>{money(grandTotal)}</span>
       </div>
 
       {/* PAYMENT */}
-      <div style={{ fontSize: 11, marginTop: 4 }}>
-        <div style={printRow("flex", {}, true)}><span>Payment Mode</span><span>{order.paymentMethod || "-"}</span></div>
-        <div style={printRow("flex", {}, true)}><span>Payment Status</span><span>{order.paymentStatus || "-"}</span></div>
+      <div style={{ fontSize: 10, marginTop: 3 }}>
+        <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Payment Mode</span><span style={{ fontWeight: 700 }}>{order.paymentMethod || "-"}</span></div>
+        <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Payment Status</span><span style={{ fontWeight: 700 }}>{order.paymentStatus || "-"}</span></div>
         {order.paymentStatus === "paid" ? (
-          <div style={printRow("flex", {}, true)}><span>Amount Paid</span><span>{money(grandTotal)}</span></div>
+          <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Amount Paid</span><span style={{ fontWeight: 700 }}>{money(grandTotal)}</span></div>
         ) : (
-          <div style={printRow("flex", {}, true)}><span>Balance Due</span><span>{money(grandTotal)}</span></div>
+          <div style={printRow("flex", {}, true)}><span style={{ fontWeight: 700 }}>Balance Due</span><span style={{ fontWeight: 700 }}>{money(grandTotal)}</span></div>
         )}
       </div>
 
       {/* FOOTER */}
-      <div style={{ borderTop: "1px dashed #000", margin: "6px 0 0", paddingTop: 4, textAlign: "center", fontSize: 11 }}>
-        <div>Amount in words: {numberToWords(grandTotal)}</div>
-        <div style={{ marginTop: 4, fontWeight: 700 }}>{footer || "Thank You, Visit Us Again!"}</div>
-        <div style={{ marginTop: 2 }}>***</div>
+      <div style={{ borderTop: "1px dashed #000", margin: "4px 0 0", paddingTop: 3, textAlign: "center", fontSize: 10 }}>
+        <div style={{ fontSize: 9 }}>Amount in words: {numberToWords(grandTotal)}</div>
+        <div style={{ marginTop: 3 }}>{footer || "Thank You, Visit Us Again!"}</div>
+        <div style={{ marginTop: 2 }}>*</div>
       </div>
     </div>
   );
@@ -2035,16 +2035,17 @@ export default function POSPage() {
             <style>{`
               @media screen { .print-area { display: none; } }
               @media print {
+                @page { size: 58mm auto; margin: 0; }
+                html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
                 #root { display: none !important; }
-                body { background: #fff !important; margin: 0 !important; }
                 .print-area {
                   display: block !important;
-                  width: ${thermalEnabled ? "80mm" : "100%"};
+                  width: ${thermalEnabled ? "58mm" : "100%"};
                   margin: 0 auto;
                   padding: 0;
-                  font-family: 'Courier New', Courier, monospace;
-                  font-size: 12px;
-                  line-height: 1.35;
+                  font-family: Arial, Helvetica, sans-serif;
+                  font-size: 10px;
+                  line-height: 1.3;
                   color: #000;
                   -webkit-print-color-adjust: exact;
                   print-color-adjust: exact;
