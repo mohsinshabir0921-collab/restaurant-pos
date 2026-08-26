@@ -105,6 +105,7 @@ const getInventoryShortages = async (order) => {
     if (!recipe || !recipe.isActive) continue;
 
     for (const ingredient of recipe.ingredients) {
+      if (!ingredient.item) continue;
       const inventoryItem = await InventoryItem.findById(ingredient.item._id);
       if (!inventoryItem) continue;
 
@@ -165,6 +166,7 @@ const deductInventoryForOrder = async (order, userId) => {
         if (!recipe || !recipe.isActive) continue;
 
         for (const ingredient of recipe.ingredients) {
+          if (!ingredient.item) continue;
           const inventoryItem = await InventoryItem.findById(ingredient.item._id);
           if (!inventoryItem) continue;
 
@@ -221,6 +223,7 @@ const restoreInventoryForOrder = async (order, userId) => {
         if (!recipe || !recipe.isActive) continue;
 
         for (const ingredient of recipe.ingredients) {
+          if (!ingredient.item) continue;
           const inventoryItem = await InventoryItem.findById(ingredient.item._id);
           if (!inventoryItem) continue;
 
