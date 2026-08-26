@@ -51,6 +51,11 @@ const orderItemSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    size: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     kitchenStatus: {
       type: String,
       enum: ["pending", "preparing", "ready", "served"],

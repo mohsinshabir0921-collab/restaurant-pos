@@ -22,6 +22,7 @@ import {
 } from "../components/icons";
 import { OUTCOME, decidePaymentOutcome } from "../lib/paymentOutcome";
 import SearchBox from "../components/SearchBox";
+import { getOrderItemSize, getOrderItemAddons } from "../utils/orderItem";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -63,17 +64,21 @@ const KOTReceipt = ({ order }) => (
       <div>{new Date(order.createdAt).toLocaleString()}</div>
     </div>
     <hr style={{ borderTop: "1px dashed #000" }} />
-    {(order.items || []).map((item, i) => (
+    {(order.items || []).map((item, i) => {
+      const size = getOrderItemSize(item);
+      const addons = getOrderItemAddons(item);
+      return (
       <div key={i} style={{ marginBottom: 4 }}>
-        <div>{item.qty} x {item.name}</div>
-        {item.modifiers?.length > 0 && (
-          <div style={{ paddingLeft: 8, fontSize: 12 }}>{item.modifiers.map(m => m.option).join(", ")}</div>
+        <div>{item.qty} x {item.name}{size ? ` [${size}]` : ""}</div>
+        {addons.length > 0 && (
+          <div style={{ paddingLeft: 8, fontSize: 12 }}>{addons.join(", ")}</div>
         )}
         {item.kitchenStation && (
           <div style={{ paddingLeft: 8, fontSize: 12 }}>Station: {item.kitchenStation}</div>
         )}
       </div>
-    ))}
+      );
+    })}
     <hr style={{ borderTop: "1px dashed #000" }} />
     <div>Status: {order.orderStatus}</div>
     <div style={{ textAlign: "center", marginTop: 8 }}>--- END ---</div>
@@ -125,18 +130,23 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
           </tr>
         </thead>
         <tbody>
-          {(order.items || []).map((item, i) => (
+          {(order.items || []).map((item, i) => {
+            const size = getOrderItemSize(item);
+            const addons = getOrderItemAddons(item);
+            return (
             <tr key={i}>
               <td>
                 {item.name}
-                {item.modifiers?.length > 0 ? ` (${item.modifiers.map(m => m.option).join(", ")})` : ""}
-                {item.notes ? ` [${item.notes}]` : ""}
+                {size ? ` [${size}]` : ""}
+                {addons.length > 0 ? ` (${addons.join(", ")})` : ""}
+                {item.notes ? ` — ${item.notes}` : ""}
               </td>
               <td style={{ textAlign: "right" }}>{item.qty}</td>
               <td style={{ textAlign: "right" }}>{money(item.price)}</td>
               <td style={{ textAlign: "right" }}>{money(item.price * item.qty)}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       <hr style={{ borderTop: "1px dashed #000" }} />
@@ -1638,13 +1648,18 @@ export default function POSPage() {
                   </div>
                   <p className="customer-name">{order.customerName}</p>
                   <div className="ticket-items">
-                    {order.items.map((item, i) => (
+                    {order.items.map((item, i) => {
+                      const size = getOrderItemSize(item);
+                      const addons = getOrderItemAddons(item);
+                      return (
                       <div key={i} className="ticket-item">
                         <span className="qty">{item.qty}×</span>
                         <span className="item-name">{item.name}</span>
-                        {item.modifiers?.length > 0 && <span className="item-note">{item.modifiers.map(m => m.option).join(", ")}</span>}
+                        {size && <span className="item-note item-size">Size: {size}</span>}
+                        {addons.length > 0 && <span className="item-note">{addons.join(", ")}</span>}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="ticket-actions">
                     {renderOrderActions(order)}
@@ -1825,12 +1840,15 @@ export default function POSPage() {
                 <div className="detail-row"><span className="label">Status</span><span className={`status-badge ${lastOrder.orderStatus}`}>{lastOrder.orderStatus}</span></div>
               </div>
               <h4 className="receipt-items-title">Items</h4>
-              {lastOrder.items.map((item, i) => (
+              {lastOrder.items.map((item, i) => {
+                const size = getOrderItemSize(item);
+                return (
                 <div key={i} className="receipt-item">
-                  <span>{item.qty}× {item.name}</span>
+                  <span>{item.qty}× {item.name}{size ? ` (${size})` : ""}</span>
                   <span>{formatCurrency(item.price * item.qty)}</span>
                 </div>
-              ))}
+                );
+              })}
               <div className="receipt-total">
                 <strong>Total: {formatCurrency(lastOrder.total)}</strong>
               </div>

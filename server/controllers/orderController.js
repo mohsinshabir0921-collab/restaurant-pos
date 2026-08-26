@@ -16,6 +16,20 @@ const { parsePagination } = require("../utils/pagination");
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "card", "upi", "wallet", "cod", "split"];
 const ALLOWED_ORDER_TYPES = ["dinein", "takeaway", "delivery"];
+
+// A size/variant is modelled as a modifier group whose name contains "size" or
+// "variant". Both the POS (hardcoded "Size") and the public website (the real
+// menu group name) send it inside `modifiers`, so we normalize it into a
+// dedicated `size` field here so every order — regardless of source — carries a
+// consistent, explicitly-stored size/variant.
+const SIZE_MODIFIER_PATTERN = /size|variant/i;
+
+const extractItemSize = (modifiers) => {
+  const sizeMod = (Array.isArray(modifiers) ? modifiers : []).find(
+    (m) => m && SIZE_MODIFIER_PATTERN.test(m.name || "")
+  );
+  return sizeMod && sizeMod.option ? sizeMod.option : "";
+};
 const ALLOWED_ORDER_STATUSES = [
   "pending",
   "confirmed",
@@ -474,6 +488,7 @@ const createOrder = async (req, res) => {
       isVeg: item.isVeg !== undefined ? item.isVeg : true,
       taxRate: item.taxRate || 0,
       modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
+      size: (item.size && String(item.size).trim()) || extractItemSize(item.modifiers),
       notes: item.notes?.trim() || "",
     }));
     console.log("Clean items built:", cleanItems.length, "items");
@@ -1223,6 +1238,7 @@ const addItemsToOrder = async (req, res) => {
       isVeg: item.isVeg !== undefined ? item.isVeg : true,
       taxRate: item.taxRate || 0,
       modifiers: Array.isArray(item.modifiers) ? item.modifiers : [],
+      size: (item.size && String(item.size).trim()) || extractItemSize(item.modifiers),
       notes: item.notes?.trim() || "",
     }));
 

@@ -4,6 +4,7 @@ import { useWebsite } from "../context/WebsiteContext";
 import { formatPrice } from "../components/common";
 import Reveal from "../components/Reveal";
 import { useEffect } from "react";
+import { getOrderItemSize, getOrderItemAddons } from "../../utils/orderItem";
 
 const formatDate = (iso) => {
   if (!iso) return null;
@@ -83,13 +84,21 @@ export default function OrderConfirmationPage() {
             <div className="confirmation-block">
               <h3>Order Summary</h3>
               <ul className="confirmation-items">
-                {order.items?.map((item, index) => (
+                {order.items?.map((item, index) => {
+                  const size = getOrderItemSize(item);
+                  const addons = getOrderItemAddons(item);
+                  return (
                   <li key={index} className="confirmation-item">
                     <span className="confirmation-item-qty">{item.qty}×</span>
-                    <span className="confirmation-item-name">{item.name}</span>
+                    <span className="confirmation-item-name">
+                      {item.name}
+                      {size && <span className="confirmation-item-size"> · {size}</span>}
+                      {addons.length > 0 && <span className="confirmation-item-addons"> ({addons.join(", ")})</span>}
+                    </span>
                     <span className="confirmation-item-price">{formatPrice(item.price * item.qty)}</span>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
               <dl className="confirmation-totals">
                 <div className="confirmation-row">

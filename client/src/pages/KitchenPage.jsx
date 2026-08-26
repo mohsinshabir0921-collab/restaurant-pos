@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { orderAPI, tableAPI } from "../services/api";
+import { getOrderItemSize, getOrderItemAddons } from "../utils/orderItem";
 
 export default function KitchenPage() {
   const [orders, setOrders] = useState([]);
@@ -138,13 +139,17 @@ export default function KitchenPage() {
         {(order.items || []).map((item, index) => {
           const itemStatus = item.kitchenStatus || "pending";
           const updating = updatingItem === `${order._id}-${index}`;
+          const size = getOrderItemSize(item);
+          const addons = getOrderItemAddons(item);
           return (
             <div key={index} className={`ticket-item ${getStationColor(item)}`}>
               <div className="ticket-item-info">
                 <span className="qty">{item.qty}×</span>
                 <span className="item-name">{item.name}</span>
                 {item.kitchenStation && <span className="item-note">@{item.kitchenStation}</span>}
-                {item.modifiers?.length > 0 && <span className="item-note">{item.modifiers.map(m => m.option).join(", ")}</span>}
+                {size && <span className="item-note item-size">Size: {size}</span>}
+                {addons.length > 0 && <span className="item-note">{addons.join(", ")}</span>}
+                {item.notes && <span className="item-note item-note-special">Note: {item.notes}</span>}
               </div>
               <div className="ticket-item-side">
                 <div className="ticket-item-total">₹{Number(item.price || 0) * Number(item.qty || 0)}</div>
