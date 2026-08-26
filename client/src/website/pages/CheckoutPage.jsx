@@ -8,6 +8,7 @@ import { useEstimate } from "../hooks/useEstimate";
 import { useCoupon } from "../hooks/useCoupon";
 import { useCheckout } from "../hooks/useOrder";
 import { formatPrice } from "../components/common";
+import { getDeliveryDistanceValidation, calculateDeliveryFee } from "../utils/deliveryRadius";
 
 const toDateInput = (date) => {
   const d = new Date(date);
@@ -26,14 +27,10 @@ const DELIVERY_RATE_FIRST_5_KM = 10;
 const DELIVERY_RATE_AFTER_5_KM = 15;
 
 // Client-side fallback used only when the authoritative server estimate has
-// not yet loaded. The server remains the source of truth for the final fee.
-const fallbackDeliveryFee = (distanceKm) => {
-  const km = Number(distanceKm);
-  if (!Number.isFinite(km) || km <= 0) return 0;
-  return Math.round(
-    Math.min(km, 5) * DELIVERY_RATE_FIRST_5_KM + Math.max(0, km - 5) * DELIVERY_RATE_AFTER_5_KM
-  );
-};
+// not yet loaded. The server remains the source of truth for the final fee;
+// the distance is already guarded against the radius rules by
+// deliveryDistanceCheck, so this only ever receives an in-range distance.
+const fallbackDeliveryFee = (distanceKm) => calculateDeliveryFee(distanceKm);
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -135,14 +132,29 @@ export default function CheckoutPage() {
     enabled: estimateEnabled,
   });
 
+  // Client-side guard that mirrors the backend delivery-radius rules. This is
+  // used to (a) block the fallback estimate from computing a fee for an
+  // out-of-range distance and (b) disable placing the order until the distance
+  // is valid. The server remains authoritative for the final order.
+  const deliveryDistanceCheck = useMemo(() => {
+    if (effectiveOrderType !== "delivery") return null;
+    const couponDiscount = Number(appliedCoupon?.discount) || 0;
+    const finalOrderValue = subtotal - couponDiscount;
+    return getDeliveryDistanceValidation(finalOrderValue, deliveryDistanceKm);
+  }, [effectiveOrderType, subtotal, appliedCoupon, deliveryDistanceKm]);
+
   // Authoritative server breakdown when available. If the estimate cannot be
   // fetched, fall back to values already known on the client (cart prices).
   // The delivery fee is never estimated on the client: it is only shown when
-  // the server calculates it from the detected location.
+  // the server calculates it from the detected location. When the entered
+  // distance exceeds this order's allowed radius, we do NOT compute a fee or
+  // surface a misleading total — the customer must fix the distance first.
   const displayEstimate = useMemo(() => {
     if (estimate) return estimate;
     const distanceKm = Number(deliveryDistanceKm);
-    const deliveryFee = effectiveOrderType === "delivery" ? fallbackDeliveryFee(distanceKm) : 0;
+    const distanceInvalid = deliveryDistanceCheck && !deliveryDistanceCheck.valid;
+    const deliveryFee =
+      effectiveOrderType === "delivery" && !distanceInvalid ? fallbackDeliveryFee(distanceKm) : 0;
     const couponDiscount = Number(appliedCoupon?.discount) || 0;
     return {
       subtotal,
@@ -158,7 +170,7 @@ export default function CheckoutPage() {
       total: subtotal - couponDiscount + deliveryFee,
       estimateOnly: true,
     };
-  }, [estimate, subtotal, effectiveOrderType, deliveryDistanceKm, appliedCoupon]);
+  }, [estimate, subtotal, effectiveOrderType, deliveryDistanceKm, appliedCoupon, deliveryDistanceCheck]);
 
   const couponOrderAmount = displayEstimate.subtotal;
 
@@ -217,6 +229,9 @@ export default function CheckoutPage() {
       const distanceKm = Number(deliveryDistanceKm);
       if (!deliveryDistanceKm.trim() || !Number.isFinite(distanceKm) || distanceKm <= 0)
         return "Please enter your delivery distance in km";
+      const finalOrderValue = subtotal - (Number(appliedCoupon?.discount) || 0);
+      const distanceCheck = getDeliveryDistanceValidation(finalOrderValue, distanceKm);
+      if (!distanceCheck.valid) return distanceCheck.message;
     }
 
     if (!paymentMethod) return "Please choose a payment method";
@@ -531,9 +546,14 @@ export default function CheckoutPage() {
                     />
                   </div>
                 </div>
-                <p className="field-hint">
-                  Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond.
-                </p>
+                  <p className="field-hint">
+                    Delivery fee: {formatPrice(DELIVERY_RATE_FIRST_5_KM)}/km for the first 5 km, then {formatPrice(DELIVERY_RATE_AFTER_5_KM)}/km beyond.
+                  </p>
+                  {deliveryDistanceCheck && !deliveryDistanceCheck.valid && (
+                    <p className="field-error" role="alert">
+                      {deliveryDistanceCheck.message}
+                    </p>
+                  )}
               </section>
             )}
 
@@ -689,7 +709,11 @@ export default function CheckoutPage() {
 
             {placeError && <p className="form-error">{placeError}</p>}
 
-            <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={placing || estimateLoading || !isOpen}>
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg btn-block"
+              disabled={placing || estimateLoading || !isOpen || (deliveryDistanceCheck && !deliveryDistanceCheck.valid)}
+            >
               {placing ? "Placing order…" : paymentMethod === "upi" ? "Pay & Place Order" : "Place Order"}
             </button>
             <p className="summary-secure">
