@@ -120,9 +120,14 @@ export const usePayment = () => {
           }
         } catch (verifyErr) {
           console.log("VERIFY PAYMENT ERROR:", verifyErr);
-          onPending?.(
-            "We could not confirm the payment right now. Your order will update automatically when it is verified."
-          );
+          const outcome = decidePaymentOutcome(verifyErr.response);
+          if (outcome === OUTCOME.FAILED) {
+            onFailure?.(verifyErr.response?.data?.message || "Payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the payment right now. Your order will update automatically when it is verified."
+            );
+          }
         }
       } catch (err) {
         onFailure?.(err?.message || "Payment could not be completed");

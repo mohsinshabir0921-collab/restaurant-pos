@@ -490,6 +490,12 @@ export default function POSPage() {
             resolve(OUTCOME.PENDING);
           } catch (error) {
             console.log("VERIFY PAYMENT ERROR:", error);
+            const outcome = decidePaymentOutcome(error.response);
+            if (outcome === OUTCOME.FAILED) {
+              alert(error.response?.data?.message || "Payment could not be completed");
+              resolve(OUTCOME.FAILED);
+              return;
+            }
             alert(
               "We could not confirm the payment right now. Your order is being verified and will update automatically."
             );
