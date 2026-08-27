@@ -1,3 +1,4 @@
+# Convenience redirects
 /cart /website/cart 301
 /cart/* /website/cart/:splat 301
 
@@ -6,3 +7,9 @@
 
 /track /website/track 301
 /track/* /website/track/:splat 301
+
+# Public website SPA fallback
+/website/* /website/index.html 200
+
+# POS SPA fallback - MUST remain last
+/* /index.html 200
