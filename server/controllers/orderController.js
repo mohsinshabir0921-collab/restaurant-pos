@@ -1132,14 +1132,21 @@ const updateItemKitchenStatus = async (req, res) => {
       });
     }
 
-    const item = order.items[index];
-    item.kitchenStatus = normalizedStatus;
-    item.servedAt = normalizedStatus === "served" ? new Date() : null;
+    const servedAt = normalizedStatus === "served" ? new Date() : null;
 
-    order.markModified("items");
-    await order.save();
+    // Use atomic updateOne to avoid re-validating malformed legacy items
+    await Order.updateOne(
+      { _id: id },
+      {
+        $set: {
+          [`items.${index}.kitchenStatus`]: normalizedStatus,
+          [`items.${index}.servedAt`]: servedAt,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
-    const populatedOrder = await Order.findById(order._id)
+    const populatedOrder = await Order.findById(id)
       .populate("customer", "name phone")
       .populate("table", "number zone")
       .populate("updatedBy", "name")
@@ -1411,8 +1418,9 @@ const cancelOrder = async (req, res) => {
     }
 
     await order.transitionTo("cancelled", req.user._id);
-    order.cancellationReason = reason?.trim() || "";
-    await order.save();
+    const cancellationReason = reason?.trim() || "";
+    await Order.updateOne({ _id: order._id }, { $set: { cancellationReason, updatedAt: new Date() } });
+    order.cancellationReason = cancellationReason;
 
     try {
       await createNotificationForAdmins({

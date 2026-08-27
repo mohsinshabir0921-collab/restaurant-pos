@@ -406,12 +406,19 @@ orderSchema.methods.transitionTo = async function (newStatus, userId = null) {
   if (newStatus === "refunded") {
     updateData.paymentStatus = "refunded";
   }
+  if (newStatus === "completed" && !this.invoiceNumber) {
+    updateData.invoiceNumber = await this.constructor.generateInvoiceNumber();
+  }
   if (userId) {
     updateData.updatedBy = userId;
   }
+  updateData.updatedAt = new Date();
   
+  // Use atomic updateOne to avoid re-validating malformed legacy items.
+  // Keeps required validation for new orders but unblocks status-only transitions on legacy docs.
+  await this.constructor.updateOne({ _id: this._id }, { $set: updateData });
   Object.assign(this, updateData);
-  return this.save();
+  return this;
 };
 
 orderSchema.statics.generateOrderNumber = async function () {
