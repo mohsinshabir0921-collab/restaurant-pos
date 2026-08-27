@@ -9,7 +9,7 @@ if (!existsSync(websiteHtml)) {
   process.exit(1);
 }
 
-const routes = ["", "menu", "cart", "checkout", "track"];
+const routes = ["", "menu", "cart", "checkout", "track", "order-confirmation"];
 
 for (const route of routes) {
   const dir = route ? join(dist, "website", route) : join(dist, "website");

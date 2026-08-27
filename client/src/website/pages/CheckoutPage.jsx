@@ -291,7 +291,7 @@ export default function CheckoutPage() {
       });
       setLastOrder(order);
       notify("success", `Order ${order.orderNumber} placed successfully`);
-      navigate("/order-confirmation");
+      navigate(`/order-confirmation/${order.orderNumber}`);
     } catch (err) {
       notify("error", err?.message || "Could not place your order. Please try again.");
     }
