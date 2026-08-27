@@ -499,7 +499,7 @@ export default function POSPage() {
             }
             const checkoutErrorCode =
               checkoutResult?.error?.code || checkoutResult?.code || "";
-            const isUserAborted = checkoutErrorCode === "user_aborted";
+            const isUserAborted = checkoutErrorCode === "payment_aborted";
             const msg = error.response?.data?.message || "";
             if (isUserAborted && msg.includes("Could not confirm")) {
               alert(msg || "Payment cancelled");

@@ -128,7 +128,7 @@ export const usePayment = () => {
           } else {
             const checkoutErrorCode =
               checkoutResult?.error?.code || checkoutResult?.code || "";
-            const isUserAborted = checkoutErrorCode === "user_aborted";
+            const isUserAborted = checkoutErrorCode === "payment_aborted";
             const msg = verifyErr.response?.data?.message || "";
             if (isUserAborted && msg.includes("Could not confirm")) {
               onFailure?.(msg || "Payment cancelled");
