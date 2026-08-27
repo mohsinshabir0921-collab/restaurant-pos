@@ -93,13 +93,15 @@ export const usePayment = () => {
         // The payment flow has returned (success, failure, popup closed, or a
         // redirect to a UPI app). Ignore the client-side status and reconcile
         // with the server below.
+        let checkoutResult = null;
         try {
-          await cashfree.checkout({
+          checkoutResult = await cashfree.checkout({
             paymentSessionId,
             orderId: cashfreeOrderId,
             redirectTarget: "_modal",
           });
         } catch (checkoutErr) {
+          checkoutResult = checkoutErr;
           console.log("CASHFREE CHECKOUT ERROR:", checkoutErr?.message || checkoutErr);
         }
 
@@ -124,9 +126,17 @@ export const usePayment = () => {
           if (outcome === OUTCOME.FAILED) {
             onFailure?.(verifyErr.response?.data?.message || "Payment could not be completed");
           } else {
-            onPending?.(
-              "We could not confirm the payment right now. Your order will update automatically when it is verified."
-            );
+            const checkoutErrorCode =
+              checkoutResult?.error?.code || checkoutResult?.code || "";
+            const isUserAborted = checkoutErrorCode === "user_aborted";
+            const msg = verifyErr.response?.data?.message || "";
+            if (isUserAborted && msg.includes("Could not confirm")) {
+              onFailure?.(msg || "Payment cancelled");
+            } else {
+              onPending?.(
+                "We could not confirm the payment right now. Your order will update automatically when it is verified."
+              );
+            }
           }
         }
       } catch (err) {

@@ -460,6 +460,7 @@ export default function POSPage() {
           mode: paymentRes.data.environment === "production" ? "production" : "sandbox",
         });
 
+        let checkoutResult = null;
         const reconcileWithServer = async () => {
           try {
             const verifyRes = await paymentAPI.verifyCashfreePayment({
@@ -496,6 +497,15 @@ export default function POSPage() {
               resolve(OUTCOME.FAILED);
               return;
             }
+            const checkoutErrorCode =
+              checkoutResult?.error?.code || checkoutResult?.code || "";
+            const isUserAborted = checkoutErrorCode === "user_aborted";
+            const msg = error.response?.data?.message || "";
+            if (isUserAborted && msg.includes("Could not confirm")) {
+              alert(msg || "Payment cancelled");
+              resolve(OUTCOME.FAILED);
+              return;
+            }
             alert(
               "We could not confirm the payment right now. Your order is being verified and will update automatically."
             );
@@ -512,8 +522,14 @@ export default function POSPage() {
             orderId: paymentRes.data.cashfreeOrderId,
             redirectTarget: "_modal",
           })
-          .then(reconcileWithServer)
-          .catch(() => reconcileWithServer());
+          .then((result) => {
+            checkoutResult = result;
+            return reconcileWithServer();
+          })
+          .catch((err) => {
+            checkoutResult = err;
+            return reconcileWithServer();
+          });
       });
     } catch (error) {
       console.log("CASHFREE CHECKOUT ERROR:", error);
