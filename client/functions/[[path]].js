@@ -37,6 +37,8 @@ export async function onRequest(context) {
       "/website/checkout/",
       "/website/track",
       "/website/track/",
+      "/website/order-confirmation",
+      "/website/order-confirmation/",
     ]);
     if (staticWebsitePaths.has(path)) {
       const assetResponse = await env.ASSETS.fetch(request);
