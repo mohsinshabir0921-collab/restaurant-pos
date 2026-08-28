@@ -617,14 +617,24 @@ const createOrder = async (req, res) => {
     }
 
     console.log("--- Step 15: Payment method check ---");
-    const isInstantPaid = ["cash", "card", "wallet"].includes(paymentMethod);
+    // Dine-in cash is auto-paid at the counter on creation; Takeaway/Delivery
+    // cash requires an explicit "Mark Cash Paid" confirmation later, so it is
+    // created as "pending" (but operationally confirmed). Card/wallet/split
+    // remain instant-paid as before.
+    const isDineinCash = orderType === "dinein" && paymentMethod === "cash";
+    const isInstantPaid = ["card", "wallet"].includes(paymentMethod) || isDineinCash;
     const isSplit = paymentMethod === "split";
     const isCOD = paymentMethod === "cod" && orderType === "delivery";
     // UPI and COD are never settled at creation: only instant-paid methods
-    // (cash/card/wallet) and split payments create paid + confirmed orders.
-    // UPI stays pending until the Cashfree verify/webhook path succeeds.
+    // (card/wallet/dine-in cash) and split payments create paid + confirmed
+    // orders. UPI stays pending until the Cashfree verify/webhook path succeeds.
     const isPaidOnCreate = isInstantPaid || isSplit;
-    console.log("Payment check:", { isInstantPaid, isSplit, isCOD, paymentMethod, orderType, isPaidOnCreate });
+    const isCashNonDinein = paymentMethod === "cash" && orderType !== "dinein";
+    const startConfirmed = isPaidOnCreate || isCashNonDinein;
+    // Takeaway/Delivery cash is created operationally confirmed, so inventory
+    // must still be reserved/deducted at creation even though payment is pending.
+    const deductOnCreate = isPaidOnCreate || isCashNonDinein;
+    console.log("Payment check:", { isInstantPaid, isSplit, isCOD, paymentMethod, orderType, isPaidOnCreate, isCashNonDinein, startConfirmed, deductOnCreate });
 
     console.log("--- Step 15b: Inventory availability check ---");
     const shortages = await getInventoryShortages({ items: cleanItems });
@@ -681,7 +691,7 @@ const createOrder = async (req, res) => {
       paymentMethod,
       paymentStatus: isPaidOnCreate ? "paid" : "pending",
       paidAt: isPaidOnCreate ? new Date() : null,
-      orderStatus: isPaidOnCreate ? "confirmed" : "pending",
+      orderStatus: startConfirmed ? "confirmed" : "pending",
       deliveryAddress,
       deliveryFee: Number(deliveryFee) || 0,
       pickupAt: pickupAt ? new Date(pickupAt) : null,
@@ -692,13 +702,14 @@ const createOrder = async (req, res) => {
     });
     console.log("Order created:", order._id, "orderNumber:", order.orderNumber);
 
-    // Deduct inventory for instant paid orders before applying any other side
-    // effects (table, loyalty, coupon, payment). If the deduction fails after
-    // the availability pre-check (e.g. a concurrent order consumed the stock),
-    // reject cleanly and remove the just-created order so no partial state
-    // (order/payment/table/loyalty/coupon) is left behind.
-    if (isPaidOnCreate) {
-      console.log("Deducting inventory for instant paid order");
+    // Deduct inventory for orders that consume stock at creation (instant-paid
+    // orders and Takeaway/Delivery cash, which starts confirmed) before applying
+    // any other side effects (table, loyalty, coupon, payment). If the deduction
+    // fails after the availability pre-check (e.g. a concurrent order consumed
+    // the stock), reject cleanly and remove the just-created order so no partial
+    // state (order/payment/table/loyalty/coupon) is left behind.
+    if (deductOnCreate) {
+      console.log("Deducting inventory for order at creation");
       try {
         await deductInventoryForOrder(order, req.user._id);
         console.log("Inventory deducted successfully");
@@ -1588,6 +1599,99 @@ const printInvoice = async (req, res) => {
   }
 };
 
+// Explicitly confirm cash collected for an order whose payment is "pending"
+// (Takeaway/Delivery cash). This ONLY changes paymentStatus/paidAt and NEVER
+// orderStatus, so the order stays operationally confirmed/preparing/etc.
+// Atomic claim makes it idempotent and race-safe: exactly one concurrent
+// request becomes the owner that calls Payment.ensurePaid.
+const markOrderPaid = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order id",
+      });
+    }
+
+    const existing = await Order.findById(id);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    if (existing.paymentMethod !== "cash") {
+      return res.status(400).json({
+        success: false,
+        message: "Only cash orders can be marked paid through this endpoint",
+      });
+    }
+
+    if (["cancelled", "refunded"].includes(existing.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot mark a cancelled or refunded order as paid",
+      });
+    }
+
+    // Atomically claim the unpaid order so two concurrent requests cannot
+    // both create a payment record. Only the winner proceeds to settle.
+    const claimed = await Order.findOneAndUpdate(
+      { _id: id, paymentStatus: { $ne: "paid" } },
+      { $set: { paymentStatus: "paid", paidAt: new Date() } },
+      { new: true }
+    );
+
+    if (!claimed) {
+      // Already paid (or claimed by a concurrent request). Return idempotently
+      // WITHOUT creating another Payment record.
+      const alreadyPaid = await Order.findById(id)
+        .populate("customer", "name phone email addresses")
+        .populate("table", "number zone")
+        .populate("createdBy", "name")
+        .populate("servedBy", "name")
+        .lean();
+      return res.status(200).json({
+        success: true,
+        message: "Order already paid",
+        order: alreadyPaid,
+      });
+    }
+
+    try {
+      await Payment.ensurePaid({
+        order: claimed._id,
+        customer: claimed.customer || null,
+        amount: claimed.total,
+        method: "cash",
+        gateway: "manual",
+        collectedBy: req.user._id,
+        collectedAt: new Date(),
+      });
+    } catch (paymentError) {
+      console.error("MARK CASH PAID - PAYMENT RECORD SYNC FAILED:", paymentError);
+    }
+
+    const populatedOrder = await Order.findById(claimed._id)
+      .populate("customer", "name phone email addresses")
+      .populate("table", "number zone")
+      .populate("createdBy", "name")
+      .populate("servedBy", "name")
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      order: populatedOrder,
+    });
+  } catch (error) {
+    console.log("MARK ORDER PAID ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   createOrder,
   getAllOrders,
@@ -1601,6 +1705,7 @@ module.exports = {
   cancelOrder,
   printKOT,
   printInvoice,
+  markOrderPaid,
   calculateTax,
   calculateServiceCharge,
   applyCoupon,

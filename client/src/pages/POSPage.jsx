@@ -380,6 +380,7 @@ export default function POSPage() {
   const [assignOrder, setAssignOrder] = useState(null);
   const [assignSelection, setAssignSelection] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [markingPaidId, setMarkingPaidId] = useState(null);
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -1195,6 +1196,23 @@ export default function POSPage() {
     }
   };
 
+  const handleMarkPaid = async (orderId) => {
+    if (markingPaidId) return;
+    setMarkingPaidId(orderId);
+    setError("");
+    try {
+      const res = await orderAPI.markPaid(orderId);
+      if (res.data.success) {
+        setOrders(prev => prev.map(o => o._id === orderId ? res.data.order : o));
+        setKitchenOrders(prev => prev.map(o => o._id === orderId ? { ...o, paymentStatus: res.data.order.paymentStatus, paidAt: res.data.order.paidAt } : o));
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to mark order as paid");
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
+
   const handleAssignDelivery = async (orderId, deliveryBoyId) => {
     setAssigning(true);
     setError("");
@@ -1288,6 +1306,25 @@ export default function POSPage() {
     }
     if (order.orderStatus === "served") {
       actions.push(<button key="paid" className="btn btn-sm btn-info" onClick={() => handleStatusChange(order._id, "paid")}>Mark Paid</button>);
+    }
+    if (
+      isAdminOrCashier &&
+      order.paymentMethod === "cash" &&
+      order.orderType !== "dinein" &&
+      order.paymentStatus !== "paid" &&
+      order.orderStatus !== "cancelled" &&
+      order.orderStatus !== "refunded"
+    ) {
+      actions.push(
+        <button
+          key="mark-cash-paid"
+          className="btn btn-sm btn-info"
+          disabled={markingPaidId === order._id}
+          onClick={() => handleMarkPaid(order._id)}
+        >
+          {markingPaidId === order._id ? "..." : "Mark Cash Paid"}
+        </button>
+      );
     }
     if (!["cancelled", "refunded"].includes(order.orderStatus)) {
       actions.push(<button key="kot" className="btn btn-sm btn-secondary" onClick={() => handlePrint(order, "kot")}>Print KOT</button>);
@@ -2051,6 +2088,9 @@ export default function POSPage() {
                       </div>
                       <div className="order-card-block order-card-status">
                         <span className={`status-badge ${order.orderStatus}`}>{order.orderStatus}</span>
+                        {order.paymentMethod === "cash" && order.orderType !== "dinein" && order.paymentStatus !== "paid" && (
+                          <span className="status-badge pending">Cash Pending</span>
+                        )}
                         <span className="order-card-time">{timeAgo(order.createdAt)}</span>
                       </div>
                       <div className="order-card-block order-card-total">
@@ -2088,8 +2128,9 @@ export default function POSPage() {
                           <div className="order-detail-field">
                             <span className="order-detail-label">Payment</span>
                             <span className="order-detail-value">
-                              {PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}
-                              {order.paymentStatus && ` · ${order.paymentStatus}`}
+                              {order.paymentMethod === "cash"
+                                ? (order.paymentStatus === "paid" ? "Paid" : "Cash Pending")
+                                : `${PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}${order.paymentStatus ? ` · ${order.paymentStatus}` : ""}`}
                             </span>
                           </div>
                           {order.customerPhone && (

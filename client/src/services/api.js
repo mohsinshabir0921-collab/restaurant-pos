@@ -213,6 +213,7 @@ export const orderAPI = {
   addItems: (id, items) => api.post(`/orders/${id}/items`, { items }),
   removeItem: (id, itemIndex) => api.delete(`/orders/${id}/items/${itemIndex}`),
   cancel: (id, reason) => api.post(`/orders/${id}/cancel`, { reason }),
+  markPaid: (id) => api.post(`/orders/${id}/mark-paid`),
   printKOT: (id) => api.post(`/orders/${id}/print-kot`),
   printInvoice: (id) => api.post(`/orders/${id}/print-invoice`),
 };
