@@ -39,6 +39,11 @@ class WebPushService {
    * Send new order notification to all active POS subscriptions
    */
   static async sendNewOrderNotification(order) {
+    console.log('[PUSH DEBUG] sendNewOrderNotification entered');
+    
+    const vapidConfigured = !!(publicKey && privateKey);
+    console.log(`[PUSH DEBUG] VAPID configuration present: ${vapidConfigured}`);
+    
     if (!publicKey || !privateKey) {
       console.warn('VAPID keys not configured, skipping push notification');
       return;
@@ -48,6 +53,8 @@ class WebPushService {
       const subscriptions = await PushSubscription.find({ 
         isActive: true 
       }).populate('user', 'name role');
+
+      console.log(`[PUSH DEBUG] Active subscriptions found: ${subscriptions.length}`);
 
       if (subscriptions.length === 0) {
         return;
@@ -65,18 +72,29 @@ class WebPushService {
         }
       };
 
-      const promises = subscriptions.map(sub => {
+      console.log(`[PUSH DEBUG] Sending push to ${subscriptions.length} subscription(s)`);
+
+      const promises = subscriptions.map(async (sub) => {
         const subscriptionObj = {
           endpoint: sub.endpoint,
           keys: sub.keys
         };
-        return this.sendToSubscription(subscriptionObj, payload);
+        try {
+          const result = await this.sendToSubscription(subscriptionObj, payload);
+          console.log('[PUSH DEBUG] Push result: success');
+          return result;
+        } catch (err) {
+          console.log(`[PUSH DEBUG] Push result: failed status=${err.statusCode || 'unknown'} message=${err.message || 'unknown'}`);
+          return false;
+        }
       });
 
       await Promise.allSettled(promises);
       console.log(`New order push sent to ${subscriptions.length} POS devices`);
     } catch (error) {
       console.error('Error sending new order push notifications:', error.message);
+    } finally {
+      console.log('[PUSH DEBUG] sendNewOrderNotification completed');
     }
   }
 
