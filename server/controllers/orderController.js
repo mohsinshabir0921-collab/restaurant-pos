@@ -782,11 +782,9 @@ const createOrder = async (req, res) => {
     }
 
     // Send push notification to POS devices (non-blocking)
-    console.log('[PUSH DEBUG] ABOUT TO CALL WEB PUSH');
     WebPushService.sendNewOrderNotification(order).catch(err => {
       console.error('Push notification failed:', err.message);
     });
-    console.log('[PUSH DEBUG] WEB PUSH CALL ATTACHED');
 
     console.log("=== CREATE ORDER SUCCESS ===");
     return res.status(201).json({
