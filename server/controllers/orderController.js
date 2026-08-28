@@ -16,6 +16,7 @@ const { isPromoEligible } = require("../utils/promo");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
 const thermalPrinter = require("../services/thermalPrinter");
+const WebPushService = require("../services/webPush");
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "card", "upi", "wallet", "cod", "split"];
 const ALLOWED_ORDER_TYPES = ["dinein", "takeaway", "delivery"];
@@ -779,6 +780,13 @@ const createOrder = async (req, res) => {
     } catch (notifyError) {
       console.error("ORDER NOTIFICATION ERROR:", notifyError.message);
     }
+
+    // Send push notification to POS devices (non-blocking)
+    console.log('[PUSH DEBUG] ABOUT TO CALL WEB PUSH');
+    WebPushService.sendNewOrderNotification(order).catch(err => {
+      console.error('Push notification failed:', err.message);
+    });
+    console.log('[PUSH DEBUG] WEB PUSH CALL ATTACHED');
 
     console.log("=== CREATE ORDER SUCCESS ===");
     return res.status(201).json({

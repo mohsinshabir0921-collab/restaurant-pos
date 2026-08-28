@@ -1,6 +1,8 @@
 const webpush = require('web-push');
 const PushSubscription = require('../models/PushSubscription');
 
+console.log('[PUSH DEBUG] webPush service module loaded');
+
 // Configure VAPID keys
 const publicKey = process.env.VAPID_PUBLIC_KEY;
 const privateKey = process.env.VAPID_PRIVATE_KEY;
