@@ -1548,11 +1548,11 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
 
 .status-badge.pending { background: var(--color-warning-light); color: var(--color-warning); }
 .status-badge.confirmed { background: var(--color-info-light); color: var(--color-info); }
-.status-badge.preparing { background: var(--color-secondary-light); color: var(--color-secondary); }
+.status-badge.preparing { background: #ffedd5; color: #c2410c; }
 .status-badge.ready { background: var(--color-success-light); color: var(--color-success); }
-.status-badge.served { background: var(--color-info-light); color: var(--color-info); }
+.status-badge.served { background: #cffafe; color: #0e7490; }
 .status-badge.paid { background: var(--color-primary-light); color: var(--color-primary); }
-.status-badge.completed { background: var(--color-success-light); color: var(--color-success); }
+.status-badge.completed { background: #e5e7eb; color: #4b5563; }
 .status-badge.cancelled { background: var(--color-danger-light); color: var(--color-danger); }
 .status-badge.active { background: var(--color-success-light); color: var(--color-success); }
 .status-badge.inactive { background: var(--color-border-strong); color: var(--color-text-secondary); }

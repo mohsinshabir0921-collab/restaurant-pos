@@ -36,6 +36,26 @@ const formatAddress = (addr) => {
 
 const ORDER_TYPE_LABELS = { dinein: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" };
 
+const STATUS_GROUPS = {
+  all: null,
+  active: ["pending", "confirmed", "preparing", "ready", "served"],
+  settled: ["paid", "completed"],
+  cancelled: ["cancelled", "refunded"],
+};
+
+const PAYMENT_METHOD_LABELS = { cash: "Cash", upi: "UPI", card: "Card" };
+
+const timeAgo = (iso) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
 // Dedicated "waiter" role for front-of-house staff serving Dine-In tables.
 const WAITER_ROLES = ["waiter"];
 
@@ -319,6 +339,13 @@ export default function POSPage() {
 
   const [orders, setOrders] = useState([]);
   const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [orderTypeFilter, setOrderTypeFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
+  const [ordersUpdatedAt, setOrdersUpdatedAt] = useState(null);
+  const orderFiltersRef = useRef({ type: "all", date: "all" });
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [kitchenFilter, setKitchenFilter] = useState("active");
   const [lastOrder, setLastOrder] = useState(null);
@@ -647,19 +674,56 @@ export default function POSPage() {
     }
   };
 
+  const buildOrderDateRange = (key) => {
+    if (key === "all") return {};
+    const now = new Date();
+    if (key === "today") {
+      const start = new Date(now);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(now);
+      end.setHours(23, 59, 59, 999);
+      return { startDate: start.toISOString(), endDate: end.toISOString() };
+    }
+    if (key === "week") {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      start.setHours(0, 0, 0, 0);
+      return { startDate: start.toISOString(), endDate: now.toISOString() };
+    }
+    return {};
+  };
+
+  const applyOrderFilters = (type, date) => {
+    orderFiltersRef.current = { type, date };
+    setOrderTypeFilter(type);
+    setDateFilter(date);
+    fetchOrders(false);
+  };
+
   const fetchOrders = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const res = await orderAPI.getAll({ limit: 50 });
+      setOrdersLoading(true);
+      const { type, date } = orderFiltersRef.current;
+      const params = { limit: 50 };
+      if (type !== "all") params.orderType = type;
+      const dateParams = buildOrderDateRange(date);
+      if (dateParams.startDate) params.startDate = dateParams.startDate;
+      if (dateParams.endDate) params.endDate = dateParams.endDate;
+      const res = await orderAPI.getAll(params);
       if (res.data.success) {
         const newOrders = res.data.orders;
         detectNewOrders(newOrders);
         setOrders(newOrders);
+        setOrdersError("");
+        setOrdersUpdatedAt(new Date());
       }
     } catch (err) {
       console.error("Failed to load orders");
+      setOrdersError("Could not load orders. Please try again.");
     } finally {
       if (showLoader) setLoading(false);
+      setOrdersLoading(false);
     }
   };
 
@@ -793,17 +857,21 @@ export default function POSPage() {
   }, [menuItems, selectedCategory, searchQuery]);
 
   const filteredOrders = useMemo(() => {
+    const statuses = STATUS_GROUPS[orderStatusFilter] || null;
     const q = orderSearch.trim().toLowerCase();
-    if (!q) return orders;
-    return orders.filter(o =>
-      o.orderNumber?.toLowerCase().includes(q) ||
-      o.customerName?.toLowerCase().includes(q) ||
-      o.orderType?.toLowerCase().includes(q) ||
-      (o.tableNo != null && String(o.tableNo).toLowerCase().includes(q)) ||
-      o.paymentMethod?.toLowerCase().includes(q) ||
-      o.orderStatus?.toLowerCase().includes(q)
-    );
-  }, [orders, orderSearch]);
+    return orders.filter(o => {
+      if (statuses && !statuses.includes(o.orderStatus)) return false;
+      if (!q) return true;
+      return (
+        o.orderNumber?.toLowerCase().includes(q) ||
+        o.customerName?.toLowerCase().includes(q) ||
+        o.orderType?.toLowerCase().includes(q) ||
+        (o.tableNo != null && String(o.tableNo).toLowerCase().includes(q)) ||
+        o.paymentMethod?.toLowerCase().includes(q) ||
+        o.orderStatus?.toLowerCase().includes(q)
+      );
+    });
+  }, [orders, orderSearch, orderStatusFilter]);
 
   const categoryList = useMemo(() => {
     // Build the selector from ALL active categories (so newly created / empty
@@ -1847,121 +1915,230 @@ export default function POSPage() {
 
       {activeTab === "orders" && (
         <div className="orders-list">
-          <div className="orders-header">
-            <h3>Recent Orders</h3>
+          <div className="orders-toolbar">
+            <div className="orders-toolbar-title">
+              <h3>Orders</h3>
+              <span className="orders-count">{filteredOrders.length} shown</span>
+            </div>
             <SearchBox
               value={orderSearch}
               onChange={setOrderSearch}
               placeholder="Search orders…"
               ariaLabel="Search orders"
             />
-            <button onClick={() => fetchOrders(true)} className="btn btn-secondary">Refresh</button>
           </div>
-          <div className="orders-table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Customer</th>
-                  <th>Type</th>
-                  <th>Table</th>
-                  <th>Status</th>
-                  <th>Payment</th>
-                  <th>Total</th>
-                  <th>Time</th>
-                  <th>Assigned</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="no-results">
-                      {orderSearch.trim() ? `No orders match “${orderSearch.trim()}”.` : "No orders yet."}
-                    </td>
-                  </tr>
-                ) :
-                  filteredOrders.slice(0, 20).map(order => (
-                  <Fragment key={order._id}>
-                    <tr
-                      id={`order-row-${order._id}`}
-                      className={order._id === highlightedOrderId ? "order-row-highlight" : ""}
-                      onClick={() => setExpandedOrderId(expandedOrderId === order._id ? null : order._id)}
-                      style={{ cursor: "pointer" }}
+
+          <div className="orders-filters">
+            <div className="filter-group">
+              <span className="filter-label">Status</span>
+              {[
+                { key: "all", label: "All" },
+                { key: "active", label: "Active" },
+                { key: "settled", label: "Paid / Completed" },
+                { key: "cancelled", label: "Cancelled / Refunded" },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  className={`filter-btn ${orderStatusFilter === f.key ? "active" : ""}`}
+                  onClick={() => setOrderStatusFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="filter-group">
+              <span className="filter-label">Type</span>
+              {[
+                { key: "all", label: "All" },
+                { key: "dinein", label: "Dine-in" },
+                { key: "takeaway", label: "Takeaway" },
+                { key: "delivery", label: "Delivery" },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  className={`filter-btn ${orderTypeFilter === f.key ? "active" : ""}`}
+                  onClick={() => applyOrderFilters(f.key, dateFilter)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="filter-group">
+              <span className="filter-label">Date</span>
+              {[
+                { key: "all", label: "All" },
+                { key: "today", label: "Today" },
+                { key: "week", label: "This week" },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  className={`filter-btn ${dateFilter === f.key ? "active" : ""}`}
+                  onClick={() => applyOrderFilters(orderTypeFilter, f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {ordersUpdatedAt && (
+            <div className="orders-updated">
+              Updated {new Date(ordersUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </div>
+          )}
+
+          {ordersError && (
+            <div className="orders-error">
+              <p>{ordersError}</p>
+              <button className="btn btn-secondary" onClick={() => fetchOrders(true)}>
+                <IconRefresh size={14} /> Retry
+              </button>
+            </div>
+          )}
+
+          {!ordersError && ordersLoading && orders.length === 0 && (
+            <div className="orders-loading">Loading orders…</div>
+          )}
+
+          {!ordersError && !ordersLoading && filteredOrders.length === 0 && (
+            <div className="no-results orders-empty">
+              {orderSearch.trim()
+                ? `No orders match “${orderSearch.trim()}”.`
+                : (orderStatusFilter !== "all" || orderTypeFilter !== "all" || dateFilter !== "all")
+                  ? "No orders match the current filters."
+                  : "No orders yet."}
+            </div>
+          )}
+
+          {!ordersError && filteredOrders.length > 0 && (
+            <div className="orders-cards">
+              {filteredOrders.map(order => {
+                const isDineIn = order.orderType === "dinein";
+                const isDelivery = order.orderType === "delivery";
+                const isExpanded = expandedOrderId === order._id;
+                return (
+                  <div
+                    key={order._id}
+                    id={`order-row-${order._id}`}
+                    className={`order-card ${order._id === highlightedOrderId ? "order-card-highlight" : ""}`}
+                  >
+                    <button
+                      className="order-card-main"
+                      onClick={() => setExpandedOrderId(isExpanded ? null : order._id)}
+                      aria-expanded={isExpanded}
                     >
-                      <td>{order.orderNumber}</td>
-                      <td>{order.orderType === "dinein" ? (order.servedBy?.name || "-") : order.customerName}</td>
-                      <td>{order.orderType}</td>
-                      <td>{order.tableNo || "-"}</td>
-                      <td><span className={`status-badge ${order.orderStatus}`}>{order.orderStatus}</span></td>
-                      <td>{order.paymentMethod}</td>
-                      <td>{formatCurrency(order.total)}</td>
-                      <td>{new Date(order.createdAt).toLocaleString()}</td>
-                      <td><span className="assigned-name">{getAssignedName(order)}</span></td>
-                      <td onClick={(e) => e.stopPropagation()}>{renderOrderActions(order)}</td>
-                    </tr>
-                    {expandedOrderId === order._id && (
-                      <tr className="order-details-row">
-                        <td colSpan={10}>
-                          <div className="order-details-content">
-                            {order.customerPhone && (
-                              <div className="order-note">
-                                <span className="order-note-label">Phone</span>
-                                <span className="order-note-text">{order.customerPhone}</span>
-                              </div>
-                            )}
-                            {order.orderType === "delivery" && order.deliveryAddress && (
-                              <div className="order-note">
-                                <span className="order-note-label">Delivery Address</span>
-                                <span className="order-note-text">
-                                  {formatAddress(order.deliveryAddress)}
-                                  {order.deliveryAddress?.distanceKm ? ` · ${order.deliveryAddress.distanceKm} km` : ""}
-                                </span>
-                              </div>
-                            )}
-                            {order.orderType === "takeaway" && order.pickupAt && (
-                              <div className="order-note">
-                                <span className="order-note-label">Pickup</span>
-                                <span className="order-note-text">{new Date(order.pickupAt).toLocaleString()}</span>
-                              </div>
-                            )}
-                            <div className="order-note">
-                              <span className="order-note-label">Notes</span>
-                              <span className="order-note-text">{order.notes || "No notes"}</span>
-                            </div>
-                            {order.orderType === "dinein" && (
-                              <div className="order-note">
-                                <span className="order-note-label">Waiter</span>
-                                <span className="order-note-text">{order.servedBy?.name || "-"}</span>
-                              </div>
-                            )}
-                            <div className="order-note">
-                              <span className="order-note-label">Items</span>
-                              <div className="order-items-detail">
-                                {order.items.map((item, i) => {
-                                  const size = getOrderItemSize(item);
-                                  const addons = getOrderItemAddons(item);
-                                  return (
-                                    <div key={i} className="order-item-detail">
-                                      <div className="order-item-detail-name">{item.name}</div>
-                                      {size && <div className="order-item-detail-row">Size: {size}</div>}
-                                      <div className="order-item-detail-row">Qty: {item.qty}</div>
-                                      {addons.length > 0 && <div className="order-item-detail-row">Add-ons: {addons.join(", ")}</div>}
-                                      {item.notes && <div className="order-item-detail-row">Notes: {item.notes}</div>}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
+                      <div className="order-card-block order-card-ref">
+                        <span className="order-card-number">{order.orderNumber}</span>
+                        <span className={`order-type-chip ${order.orderType}`}>
+                          {order.orderType === "dinein" && <IconRestaurant size={12} />}
+                          {order.orderType === "takeaway" && <IconBag size={12} />}
+                          {order.orderType === "delivery" && <IconDelivery size={12} />}
+                          {ORDER_TYPE_LABELS[order.orderType] || order.orderType}
+                        </span>
+                        {order.tableNo != null && <span className="order-card-table">Table {order.tableNo}</span>}
+                      </div>
+                      <div className="order-card-block order-card-identity">
+                        <span className="order-card-name">
+                          {isDineIn ? (order.servedBy?.name || "—") : (order.customerName || "—")}
+                        </span>
+                        <span className="order-card-sub">
+                          {isDelivery
+                            ? (getAssignedName(order) !== "-" ? `Assigned: ${getAssignedName(order)}` : "Delivery")
+                            : isDineIn
+                              ? (order.servedBy?.name ? `Served by ${order.servedBy.name}` : "")
+                              : (order.customerPhone || PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod)}
+                        </span>
+                      </div>
+                      <div className="order-card-block order-card-status">
+                        <span className={`status-badge ${order.orderStatus}`}>{order.orderStatus}</span>
+                        <span className="order-card-time">{timeAgo(order.createdAt)}</span>
+                      </div>
+                      <div className="order-card-block order-card-total">
+                        <span className="order-card-amount">{formatCurrency(order.total)}</span>
+                        <IconChevronDown className={`order-card-chevron ${isExpanded ? "open" : ""}`} size={16} />
+                      </div>
+                    </button>
+                    {!["cancelled", "refunded"].includes(order.orderStatus) && (
+                      <div className="order-card-actions" onClick={(e) => e.stopPropagation()}>
+                        {renderOrderActions(order)}
+                      </div>
                     )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    {isExpanded && (
+                      <div className="order-card-detail">
+                        <div className="order-detail-items">
+                          <div className="order-detail-label">Items</div>
+                          {order.items.map((item, i) => {
+                            const size = getOrderItemSize(item);
+                            const addons = getOrderItemAddons(item);
+                            const extras = [
+                              size && `Size: ${size}`,
+                              addons.length > 0 && `Add-ons: ${addons.join(", ")}`,
+                              item.notes && `Notes: ${item.notes}`,
+                            ].filter(Boolean);
+                            return (
+                              <div key={i} className="order-item-line">
+                                <span className="order-item-qty">{item.qty}×</span>
+                                <span className="order-item-name">{item.name}</span>
+                                {extras.length > 0 && <span className="order-item-extra">{extras.join(" · ")}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="order-detail-fields">
+                          <div className="order-detail-field">
+                            <span className="order-detail-label">Payment</span>
+                            <span className="order-detail-value">
+                              {PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}
+                              {order.paymentStatus && ` · ${order.paymentStatus}`}
+                            </span>
+                          </div>
+                          {order.customerPhone && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Phone</span>
+                              <span className="order-detail-value">{order.customerPhone}</span>
+                            </div>
+                          )}
+                          {isDineIn && order.servedBy?.name && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Waiter</span>
+                              <span className="order-detail-value">{order.servedBy.name}</span>
+                            </div>
+                          )}
+                          {isDelivery && getAssignedName(order) !== "-" && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Delivery</span>
+                              <span className="order-detail-value">{getAssignedName(order)}</span>
+                            </div>
+                          )}
+                          {isDelivery && order.deliveryAddress && (
+                            <div className="order-detail-field order-detail-field-wide">
+                              <span className="order-detail-label">Delivery Address</span>
+                              <span className="order-detail-value">
+                                {formatAddress(order.deliveryAddress)}
+                                {order.deliveryAddress?.distanceKm ? ` · ${order.deliveryAddress.distanceKm} km` : ""}
+                              </span>
+                            </div>
+                          )}
+                          {order.orderType === "takeaway" && order.pickupAt && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Pickup</span>
+                              <span className="order-detail-value">{new Date(order.pickupAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {order.notes && (
+                            <div className="order-detail-field order-detail-field-wide">
+                              <span className="order-detail-label">Notes</span>
+                              <span className="order-detail-value">{order.notes}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
