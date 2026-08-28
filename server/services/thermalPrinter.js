@@ -190,6 +190,17 @@ async function printKOT(order) {
   printer.alignLeft();
   printer.drawLine();
 
+  if (o.notes) {
+    if (typeof o.notes === "string") {
+      o.notes.split(/\r?\n/).forEach((line) => {
+        wrapText(line, COLS).forEach((wrapped) => printer.println("Note: " + wrapped));
+      });
+    } else {
+      wrapText(String(o.notes), COLS).forEach((wrapped) => printer.println("Note: " + wrapped));
+    }
+    printer.drawLine();
+  }
+
   (o.items || []).forEach((item) => {
     const size = getSize(item);
     const addons = getAddons(item);
@@ -258,6 +269,15 @@ async function printInvoice(order) {
     printer.println("  " + sanitize(formatAddress(o.deliveryAddress)));
     if (o.deliveryAddress.distanceKm != null) {
       printer.println("  Distance: " + o.deliveryAddress.distanceKm + " km");
+    }
+  }
+  if (o.notes) {
+    if (typeof o.notes === "string") {
+      o.notes.split(/\r?\n/).forEach((line) => {
+        wrapText(line, COLS).forEach((wrapped) => printer.println("Note: " + wrapped));
+      });
+    } else {
+      wrapText(String(o.notes), COLS).forEach((wrapped) => printer.println("Note: " + wrapped));
     }
   }
   printer.drawLine();

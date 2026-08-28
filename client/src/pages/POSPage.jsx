@@ -84,6 +84,9 @@ const KOTReceipt = ({ order, thermal = true }) => (
       )}
       <div style={{ fontSize: 10 }}>{new Date(order.createdAt).toLocaleString()}</div>
     </div>
+    {order.notes ? (
+      <div style={{ marginTop: 4, fontSize: 10, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>Note: {order.notes}</div>
+    ) : null}
     <div style={{ borderTop: "1px dashed #000", margin: "4px 0" }} />
     {(order.items || []).map((item, i) => {
       const size = getOrderItemSize(item);
@@ -97,6 +100,9 @@ const KOTReceipt = ({ order, thermal = true }) => (
         {item.kitchenStation && (
           <div style={{ paddingLeft: 6, fontSize: 10 }}>Station: {item.kitchenStation}</div>
         )}
+        {item.notes ? (
+          <div style={{ paddingLeft: 6, fontSize: 10, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>Note: {item.notes}</div>
+        ) : null}
       </div>
       );
     })}
@@ -167,6 +173,12 @@ const InvoiceReceipt = ({ order, restaurantName = "", restaurantAddress = "", re
             ) : null}
           </div>
         )}
+        {order.notes ? (
+          <div style={{ marginTop: 2, wordBreak: "break-word", whiteSpace: "pre-wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: 10 }}>Note: </span>
+            <span style={{ fontSize: 10 }}>{order.notes}</span>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ borderTop: "1px solid #000", margin: "3px 0" }} />
