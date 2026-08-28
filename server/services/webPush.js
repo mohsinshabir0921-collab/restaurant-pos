@@ -21,8 +21,11 @@ class WebPushService {
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       return true;
     } catch (error) {
-      // Handle expired/invalid subscriptions
-      if (error.statusCode === 404 || error.statusCode === 410) {
+      // Handle expired/invalid subscriptions. 404 (not found), 410 (gone), and
+      // 403 (expired/invalid keys for this subscription) are permanent and the
+      // row is deactivated. Temporary failures (5xx, 429, network errors) are
+      // logged but never deactivate a subscription.
+      if (error.statusCode === 403 || error.statusCode === 404 || error.statusCode === 410) {
         console.log('Push subscription expired or invalid, removing:', subscription.endpoint);
         await PushSubscription.findOneAndUpdate(
           { endpoint: subscription.endpoint },
