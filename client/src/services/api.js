@@ -216,6 +216,8 @@ export const orderAPI = {
   markPaid: (id) => api.post(`/orders/${id}/mark-paid`),
   printKOT: (id) => api.post(`/orders/${id}/print-kot`),
   printInvoice: (id) => api.post(`/orders/${id}/print-invoice`),
+  editItems: (id, data) => api.put(`/orders/${id}/edit`, data),
+  collectAdditional: (id, data) => api.post(`/orders/${id}/collect-additional`, data),
 };
 
 export const deliveryAPI = {
@@ -240,6 +242,8 @@ export const reportAPI = {
 export const paymentAPI = {
   createCashfreeOrder: (orderId) => api.post("/payment/create-order", { orderId }),
   verifyCashfreePayment: (data) => api.post("/payment/verify", data),
+  createAdditionalCashfreeOrder: (orderId) => api.post("/payment/create-additional-order", { orderId }),
+  verifyAdditionalCashfreePayment: (data) => api.post("/payment/verify-additional", data),
 };
 
 export const inventoryAPI = {
