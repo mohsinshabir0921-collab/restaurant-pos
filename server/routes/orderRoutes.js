@@ -15,6 +15,8 @@ const {
   printKOT,
   printInvoice,
   markOrderPaid,
+  editOrderItems,
+  collectAdditionalPayment,
 } = require("../controllers/orderController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -38,6 +40,8 @@ router.post("/:id/items", protect, authorizeRoles("admin", "cashier"), addItemsT
 router.delete("/:id/items/:itemIndex", protect, authorizeRoles("admin", "cashier"), removeItemFromOrder);
 router.post("/:id/cancel", protect, authorizeRoles("admin", "cashier"), cancelOrder);
 router.post("/:id/mark-paid", protect, authorizeRoles("admin", "cashier"), markOrderPaid);
+router.put("/:id/edit", protect, authorizeRoles("admin", "cashier"), editOrderItems);
+router.post("/:id/collect-additional", protect, authorizeRoles("admin", "cashier"), collectAdditionalPayment);
 router.post("/:id/print-kot", protect, authorizeRoles("admin", "cashier", "kitchen"), printKOT);
 router.post("/:id/print-invoice", protect, authorizeRoles("admin", "cashier"), printInvoice);
 

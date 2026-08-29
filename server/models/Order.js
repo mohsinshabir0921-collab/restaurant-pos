@@ -239,6 +239,14 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    cashfreeAdditionalOrderId: {
+      type: String,
+      default: null,
+    },
+    cashfreeAdditionalPaymentId: {
+      type: String,
+      default: null,
+    },
     paidAt: {
       type: Date,
       default: null,
@@ -316,6 +324,20 @@ const orderSchema = new mongoose.Schema(
       default: false,
     },
     inventoryRestored: {
+      type: Boolean,
+      default: false,
+    },
+    additionalAmountDue: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    refundAmountDue: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    additionalPaymentInProgress: {
       type: Boolean,
       default: false,
     },

@@ -45,6 +45,10 @@ const STATUS_GROUPS = {
 
 const PAYMENT_METHOD_LABELS = { cash: "Cash", upi: "UPI", card: "Card" };
 
+// Order statuses staff may edit from the POS. Matches the server-side
+// EDITABLE_ORDER_STATUSES in orderController.js.
+const EDITABLE_ORDER_STATUSES = ["pending", "confirmed", "preparing", "paid"];
+
 const timeAgo = (iso) => {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -381,6 +385,10 @@ export default function POSPage() {
   const [assignSelection, setAssignSelection] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [markingPaidId, setMarkingPaidId] = useState(null);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [collectOrder, setCollectOrder] = useState(null);
+  const [collectMode, setCollectMode] = useState(null);
+  const [collectBusy, setCollectBusy] = useState(false);
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -1213,6 +1221,132 @@ export default function POSPage() {
     }
   };
 
+  // ---- Edit existing order / additional payment flows ------------------------
+
+  const applyOrderUpdate = (updated) => {
+    if (!updated) return;
+    setOrders(prev => prev.map(o => o._id === updated._id ? updated : o));
+    if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
+  };
+
+  const handleEditOrderSaved = (saved) => {
+    if (saved?.order) applyOrderUpdate(saved.order);
+    fetchOrders(false);
+  };
+
+  const handleCollectAdditional = (order) => {
+    setCollectMode(null);
+    setCollectBusy(false);
+    setCollectOrder(order);
+  };
+
+  const doCollectAdditionalCash = async (order) => {
+    setCollectBusy(true);
+    setError("");
+    try {
+      const res = await orderAPI.collectAdditional(order._id, {
+        method: "cash",
+        notes: `Additional payment of ${formatCurrency(order.additionalAmountDue)} after edit`,
+      });
+      if (res.data.success) {
+        applyOrderUpdate(res.data.order);
+        setCollectOrder(null);
+        alert("Additional payment collected");
+      } else {
+        setError(res.data.message || "Failed to record additional payment");
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to record additional payment");
+    } finally {
+      setCollectBusy(false);
+    }
+  };
+
+  // Cashfree checkout for the additional amount due after an edit. Mirrors
+  // openCashfreeCheckout: the popup's client-side status is never trusted, the
+  // server's verifyAdditionalCashfreePayment is the source of truth. Resolves
+  // with the freshly verified order (or null when payment did not confirm).
+  const runAdditionalCashfreeCheckout = async (order) => {
+    const scriptLoaded = await loadCashfreeScript();
+    if (!scriptLoaded) {
+      alert("Cashfree SDK failed to load");
+      return null;
+    }
+
+    try {
+      const paymentRes = await paymentAPI.createAdditionalCashfreeOrder(order._id);
+      if (!paymentRes.data.success) {
+        alert(paymentRes.data.message || "Failed to create additional payment");
+        return null;
+      }
+
+      return await new Promise((resolve) => {
+        const cashfree = new window.Cashfree({
+          mode: paymentRes.data.environment === "production" ? "production" : "sandbox",
+        });
+
+        const reconcileWithServer = async () => {
+          try {
+            const verifyRes = await paymentAPI.verifyAdditionalCashfreePayment({
+              orderId: order._id,
+              cashfreeOrderId: paymentRes.data.cashfreeOrderId,
+            });
+
+            const outcome = decidePaymentOutcome(verifyRes);
+            if (outcome === OUTCOME.PAID) {
+              const fresh = verifyRes.data.order || order;
+              applyOrderUpdate(fresh);
+              resolve(fresh);
+              return;
+            }
+            if (outcome === OUTCOME.FAILED) {
+              alert(verifyRes.data.message || "Additional payment could not be completed");
+              resolve(null);
+              return;
+            }
+            alert("We could not confirm the payment right now. It will be verified and update automatically.");
+            resolve(null);
+          } catch (error) {
+            console.log("VERIFY ADDITIONAL PAYMENT ERROR:", error);
+            const outcome = decidePaymentOutcome(error.response);
+            if (outcome === OUTCOME.FAILED) {
+              alert(error.response?.data?.message || "Additional payment could not be completed");
+              resolve(null);
+              return;
+            }
+            alert("We could not confirm the payment right now. It will be verified and update automatically.");
+            resolve(null);
+          }
+        };
+
+        cashfree
+          .checkout({
+            paymentSessionId: paymentRes.data.paymentSessionId,
+            orderId: paymentRes.data.cashfreeOrderId,
+            redirectTarget: "_modal",
+          })
+          .then(() => reconcileWithServer())
+          .catch(() => reconcileWithServer());
+      });
+    } catch (error) {
+      console.log("ADDITIONAL CASHFREE CHECKOUT ERROR:", error);
+      alert("Unable to start online payment");
+      return null;
+    }
+  };
+
+  const handleCollectContinue = async () => {
+    if (!collectOrder || !collectMode) return;
+    if (collectMode === "cash") {
+      await doCollectAdditionalCash(collectOrder);
+    } else {
+      await runAdditionalCashfreeCheckout(collectOrder);
+      setCollectOrder(null);
+    }
+  };
+
+  const handleEditModalPayOnline = (order) => runAdditionalCashfreeCheckout(order);
+
   const handleAssignDelivery = async (orderId, deliveryBoyId) => {
     setAssigning(true);
     setError("");
@@ -1329,6 +1463,20 @@ export default function POSPage() {
     if (!["cancelled", "refunded"].includes(order.orderStatus)) {
       actions.push(<button key="kot" className="btn btn-sm btn-secondary" onClick={() => handlePrint(order, "kot")}>Print KOT</button>);
       actions.push(<button key="invoice" className="btn btn-sm btn-secondary" onClick={() => handlePrint(order, "invoice")}>Print Invoice</button>);
+    }
+    if (isAdminOrCashier && EDITABLE_ORDER_STATUSES.includes(order.orderStatus)) {
+      actions.push(
+        <button key="edit-order" className="btn btn-sm btn-secondary" onClick={() => setEditingOrder(order)}>
+          Edit Order
+        </button>
+      );
+    }
+    if (isAdminOrCashier && Number(order.additionalAmountDue) > 0) {
+      actions.push(
+        <button key="collect-additional" className="btn btn-sm btn-info" onClick={() => handleCollectAdditional(order)}>
+          Collect {formatCurrency(order.additionalAmountDue)}
+        </button>
+      );
     }
     if (!["paid", "completed", "cancelled", "refunded"].includes(order.orderStatus)) {
       actions.push(<button key="cancel" className="btn btn-sm btn-danger" onClick={() => handleStatusChange(order._id, "cancelled")}>Cancel</button>);
@@ -2091,6 +2239,9 @@ export default function POSPage() {
                         {order.paymentMethod === "cash" && order.orderType !== "dinein" && order.paymentStatus !== "paid" && (
                           <span className="status-badge pending">Cash Pending</span>
                         )}
+                        {Number(order.additionalAmountDue) > 0 && (
+                          <span className="status-badge pending">Due {formatCurrency(order.additionalAmountDue)}</span>
+                        )}
                         <span className="order-card-time">{timeAgo(order.createdAt)}</span>
                       </div>
                       <div className="order-card-block order-card-total">
@@ -2137,6 +2288,18 @@ export default function POSPage() {
                             <div className="order-detail-field">
                               <span className="order-detail-label">Phone</span>
                               <span className="order-detail-value">{order.customerPhone}</span>
+                            </div>
+                          )}
+                          {Number(order.additionalAmountDue) > 0 && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Additional Due</span>
+                              <span className="order-detail-value">{formatCurrency(order.additionalAmountDue)}</span>
+                            </div>
+                          )}
+                          {Number(order.refundAmountDue) > 0 && (
+                            <div className="order-detail-field">
+                              <span className="order-detail-label">Refund Due</span>
+                              <span className="order-detail-value">{formatCurrency(order.refundAmountDue)}</span>
                             </div>
                           )}
                           {isDineIn && order.servedBy?.name && (
@@ -2243,6 +2406,62 @@ export default function POSPage() {
         </div>
       )}
 
+      {collectOrder && (
+        <div className="modal-overlay" onClick={() => setCollectOrder(null)}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Collect Additional Payment</h3>
+              <button className="modal-close" onClick={() => setCollectOrder(null)} aria-label="Close collect payment dialog">×</button>
+            </div>
+            <div className="modal-body">
+              <p className="form-hint">
+                Order #{collectOrder.orderNumber} — {formatCurrency(collectOrder.additionalAmountDue)} is due because the order was edited.
+              </p>
+              <div className="collect-mode-row">
+                <button
+                  type="button"
+                  className={`collect-mode-btn ${collectMode === "cash" ? "active" : ""}`}
+                  onClick={() => setCollectMode(collectMode === "cash" ? null : "cash")}
+                  disabled={collectBusy}
+                >
+                  Cash
+                </button>
+                <button
+                  type="button"
+                  className={`collect-mode-btn ${collectMode === "online" ? "active" : ""}`}
+                  onClick={() => setCollectMode(collectMode === "online" ? null : "online")}
+                  disabled={collectBusy}
+                >
+                  UPI / Card
+                </button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setCollectOrder(null)} disabled={collectBusy}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!collectMode || collectBusy}
+                onClick={handleCollectContinue}
+              >
+                {collectBusy ? "Processing…" : collectMode === "cash" ? "Collect Cash" : "Start Payment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingOrder && (
+        <EditOrderModal
+          key={editingOrder._id}
+          order={editingOrder}
+          menuItems={menuItems}
+          categories={categoryList}
+          onClose={() => setEditingOrder(null)}
+          onSaved={handleEditOrderSaved}
+          onPayOnline={handleEditModalPayOnline}
+        />
+      )}
+
       {lastOrder && (
         <div className="modal-overlay" onClick={() => setLastOrder(null)}>
           <div className="modal modal-md" onClick={(e) => e.stopPropagation()}>
@@ -2327,3 +2546,476 @@ export default function POSPage() {
     </div>
   );
 }
+
+// Normalizes a modifier/option name so matching is case/whitespace-insensitive,
+// mirroring the server's normalizeModifierKey.
+const normalizeKey = (s) => String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
+
+// Builds the clean modifiers array [{name, option, price}] for a menu item
+// given the selected options per modifier group. Pre-fills required groups with
+// their first available option when nothing is selected (mirrors server rule).
+const buildModifiers = (menuItem, selectedByOptionKey) => {
+  const clean = [];
+  for (const group of menuItem.modifiers || []) {
+    const groupKey = normalizeKey(group.name);
+    const options = group.options || [];
+    let picked = options.filter((o) => selectedByOptionKey[`${groupKey}::${normalizeKey(o.name)}`]);
+    if (picked.length === 0 && group.required && options.length > 0) {
+      picked = [options[0]];
+    }
+    for (const o of picked) {
+      clean.push({ name: group.name, option: o.name, price: Number(o.price) || 0 });
+    }
+  }
+  return clean;
+};
+
+// Line price used only for the client-side preview. The server recomputes all
+// financials authoritatively; never sent to the server as truth.
+const lineUnitPrice = (menuItem, modifiers) => {
+  const base = Number(menuItem?.price) || 0;
+  const mods = (modifiers || []).reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+  return Math.round((base + mods) * 100) / 100;
+};
+
+// Edits the items of an existing order. All financials are recomputed on the
+// server; the client only sends the desired line items + reason + optimistic
+// lock token (baseUpdatedAt). The server runs the authoritative validation
+// (availability, modifier rules, inventory shortage) and writes the audit trail.
+const EditOrderModal = ({ order, menuItems, categories, onClose, onSaved, onPayOnline }) => {
+  const menuById = useMemo(() => {
+    const map = new Map();
+    menuItems.forEach((it) => map.set(it._id, it));
+    return map;
+  }, [menuItems]);
+
+  const [lines, setLines] = useState(() =>
+    (order.items || []).map((it) => ({
+      menuItemId: it.menuItemId,
+      menuItemName: it.name,
+      qty: Number(it.qty) || 1,
+      size: it.size || "",
+      notes: it.notes || "",
+      modifiers: (it.modifiers || []).map((m) => ({ name: m.name, option: m.option, price: Number(m.price) || 0 })),
+    }))
+  );
+  const [reason, setReason] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState(null);
+  const [collecting, setCollecting] = useState(false);
+
+  const [addQuery, setAddQuery] = useState("");
+  const [addCategory, setAddCategory] = useState("All");
+  const [expandedItemId, setExpandedItemId] = useState(null);
+
+  const discount = Number(order.discount) || 0;
+
+  const availableItems = useMemo(() => {
+    const inCart = new Set(lines.map((l) => l.menuItemId));
+    let list = menuItems.filter((it) => it.isAvailable !== false && !inCart.has(it._id));
+    const q = addQuery.trim().toLowerCase();
+    if (q) list = list.filter((it) => it.name?.toLowerCase().includes(q));
+    if (addCategory !== "All") list = list.filter((it) => it.category?.name === addCategory);
+    return list;
+  }, [menuItems, lines, addQuery, addCategory]);
+
+  const activeCategories = useMemo(
+    () => categories || ["All"],
+    [categories]
+  );
+
+  const addItem = (item) => {
+    // Pre-select the required modifier group options so the server's required
+    // rule is satisfied; the user can adjust after adding.
+    const selectedByOptionKey = {};
+    setLines((prev) => [
+      ...prev,
+      {
+        menuItemId: item._id,
+        menuItemName: item.name,
+        qty: 1,
+        size: "",
+        notes: "",
+        modifiers: buildModifiers(item, selectedByOptionKey),
+      },
+    ]);
+    setAddQuery("");
+  };
+
+  const updateLine = (index, patch) => {
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  };
+
+  const removeLine = (index) => {
+    setLines((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const setModifier = (index, group, option, checked) => {
+    const item = menuById.get(lines[index].menuItemId);
+    if (!item) return;
+    const groupKey = normalizeKey(group.name);
+
+    // Preserve selections from every other modifier group, then rebuild the
+    // current group's selection with the toggled option.
+    const selectedByOptionKey = {};
+    lines[index].modifiers.forEach((m) => {
+      if (normalizeKey(m.name) !== groupKey) {
+        selectedByOptionKey[`${normalizeKey(m.name)}::${normalizeKey(m.option)}`] = true;
+      }
+    });
+
+    // Rebuild the whole item's modifiers so required-group pre-fill stays
+    // consistent even when the calendar/notes change nothing here.
+    const clean = buildModifiers(item, selectedByOptionKey);
+
+    // Now re-apply the current group's selection on top of the rebuilt set.
+    const finalClean = clean.filter((m) => normalizeKey(m.name) !== groupKey);
+    if (checked) {
+      finalClean.push({ name: group.name, option: option.name, price: Number(option.price) || 0 });
+    } else {
+      const groupOptions = group.options || [];
+      const remaining = groupOptions.find((o) => normalizeKey(o.name) !== normalizeKey(option.name));
+      if (group.required && remaining) {
+        finalClean.push({ name: group.name, option: remaining.name, price: Number(remaining.price) || 0 });
+      }
+    }
+    updateLine(index, { modifiers: finalClean });
+  };
+
+  const previewSubtotal = useMemo(
+    () =>
+      Math.round(
+        lines.reduce((sum, l) => {
+          const item = menuById.get(l.menuItemId);
+          return sum + lineUnitPrice(item, l.modifiers) * l.qty;
+        }, 0) * 100
+      ) / 100,
+    [lines, menuById]
+  );
+  const previewDiscount = Math.min(discount, previewSubtotal);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError("");
+    setResult(null);
+    const payload = {
+      items: lines.map((l) => ({
+        menuItemId: l.menuItemId,
+        qty: l.qty,
+        modifiers: l.modifiers,
+        size: l.size,
+        notes: l.notes,
+      })),
+      reason: reason,
+      baseUpdatedAt: order.updatedAt || order.updated_at,
+    };
+    try {
+      const res = await orderAPI.editItems(order._id, payload);
+      if (res.data.success) {
+        setResult(res.data);
+        onSaved(res.data);
+      } else {
+        setSaveError(res.data.message || "Failed to save order changes");
+      }
+    } catch (err) {
+      if (err.response?.status === 409) {
+        setSaveError("This order was modified by someone else. Please review the latest version and try again.");
+      } else {
+        setSaveError(err.response?.data?.message || "Failed to save order changes");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCollectCash = async () => {
+    setCollecting(true);
+    setSaveError("");
+    try {
+      const res = await orderAPI.collectAdditional(order._id, {
+        method: "cash",
+        notes: `Additional payment of ${formatCurrency(order.additionalAmountDue)} after edit`,
+      });
+      if (res.data.success) {
+        onSaved(res.data);
+        onClose();
+      } else {
+        setSaveError(res.data.message || "Failed to record additional payment");
+      }
+    } catch (err) {
+      setSaveError(err.response?.data?.message || "Failed to record additional payment");
+    } finally {
+      setCollecting(false);
+    }
+  };
+
+  const handlePayOnline = async () => {
+    setCollecting(true);
+    setSaveError("");
+    try {
+      const fresh = await onPayOnline(order);
+      if (fresh) {
+        onSaved({ success: true, order: fresh });
+        onClose();
+      }
+    } finally {
+      setCollecting(false);
+    }
+  };
+
+  if (result) {
+    const updated = result.order || {};
+    const editInfo = result.edit || {};
+    const oldTotal = Number(editInfo.previousTotal ?? order.total) || 0;
+    const newTotal = Number(updated.total ?? editInfo.newTotal) || oldTotal;
+    const diff = Math.round((newTotal - oldTotal) * 100) / 100;
+    const additionalDue = Number(editInfo.additionalAmountDue ?? updated.additionalAmountDue) > 0
+      ? Number(editInfo.additionalAmountDue ?? updated.additionalAmountDue) : 0;
+    const refundDue = Number(editInfo.refundAmountDue ?? updated.refundAmountDue) > 0
+      ? Number(editInfo.refundAmountDue ?? updated.refundAmountDue) : 0;
+
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal modal-md" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3 className="modal-title">Order Updated</h3>
+            <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
+          </div>
+          <div className="modal-body">
+            <p className="form-hint">
+              Order #{order.orderNumber} was updated successfully.
+            </p>
+            <div className="summary-row">
+              <span>Previous total</span>
+              <span>{formatCurrency(oldTotal)}</span>
+            </div>
+            <div className="summary-row">
+              <span>New total</span>
+              <span>{formatCurrency(newTotal)}</span>
+            </div>
+            <div className={`summary-row ${diff !== 0 ? "discount" : ""}`}>
+              <span>Difference</span>
+              <span>{diff >= 0 ? `+${formatCurrency(diff)}` : `-${formatCurrency(Math.abs(diff))}`}</span>
+            </div>
+            {additionalDue > 0 && (
+              <div className="summary-row total">
+                <span>Additional payment due</span>
+                <span>{formatCurrency(additionalDue)}</span>
+              </div>
+            )}
+            {refundDue > 0 && (
+              <div className="summary-row total">
+                <span>Refund amount due</span>
+                <span>{formatCurrency(refundDue)}</span>
+              </div>
+            )}
+            {additionalDue > 0 && (
+              <p className="form-hint">Please collect the additional amount from the customer.</p>
+            )}
+            {refundDue > 0 && (
+              <p className="form-hint">Be assured: no automatic refund is processed. Please process the refund via your payment gateway/reconciliation manually.</p>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={onClose}>Done</button>
+            {additionalDue > 0 && collecting ? (
+              <button className="btn btn-primary" disabled>Processing…</button>
+            ) : additionalDue > 0 ? (
+              <>
+                <button className="btn btn-secondary" onClick={handlePayOnline}>Pay Online</button>
+                <button className="btn btn-primary" onClick={handleCollectCash}>Collect Cash</button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // When adding an online payment the parent's checkout may have already closed
+  // the modal; guard against rendering a closed state.
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">Edit Order #{order.orderNumber}</h3>
+          <button className="modal-close" onClick={onClose} aria-label="Close edit dialog">×</button>
+        </div>
+        <div className="modal-body">
+          <p className="form-hint">
+            Update line items below. Prices, tax, delivery fee and inventory are
+            recomputed on the server — the shown totals are a preview only.
+          </p>
+          {saveError && <div className="toast error">{saveError}</div>}
+
+          <div className="edit-items-list">
+            {lines.map((line, index) => {
+              const item = menuById.get(line.menuItemId);
+              const unitPrice = lineUnitPrice(item, line.modifiers);
+              return (
+                <div key={`${line.menuItemId}-${index}`} className="edit-line">
+                  <div className="edit-line-top">
+                    <button
+                      type="button"
+                      className="qty-btn"
+                      aria-label="Decrease quantity"
+                      onClick={() => updateLine(index, { qty: Math.max(1, line.qty - 1) })}
+                    >
+                      −
+                    </button>
+                    <span className="edit-line-qty">{line.qty}</span>
+                    <button
+                      type="button"
+                      className="qty-btn"
+                      aria-label="Increase quantity"
+                      onClick={() => updateLine(index, { qty: line.qty + 1 })}
+                    >
+                      +
+                    </button>
+                    <div className="edit-line-info">
+                      <span className="edit-line-name">{line.menuItemName}</span>
+                      <span className="edit-line-price">{formatCurrency(unitPrice)} each</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      onClick={() => removeLine(index)}
+                    >
+                      Remove
+                    </button>
+                    {item && (item.modifiers?.length || 0) > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => setExpandedItemId((cur) => (cur === `${index}` ? null : `${index}`))}
+                      >
+                        {expandedItemId === `${index}` ? "Hide" : "Options"}
+                      </button>
+                    )}
+                  </div>
+
+                  {expandedItemId === `${index}` && item && (item.modifiers || []).length > 0 && (
+                    <div className="edit-line-options">
+                      {(item.modifiers || []).map((group, gi) => {
+                        const groupKey = normalizeKey(group.name);
+                        const selected = line.modifiers.filter((m) => normalizeKey(m.name) === groupKey);
+                        return (
+                          <div key={`${groupKey}-${gi}`} className="modifier-group">
+                            <label className="modifier-group-label">
+                              {group.name}
+                              {group.required ? " *" : ""}
+                            </label>
+                            <div className="modifier-options">
+                              {(group.options || []).map((opt, oi) => {
+                                const isSel = selected.some((m) => normalizeKey(m.option) === normalizeKey(opt.name));
+                                return (
+                                  <label key={`${groupKey}-${oi}`} className="modifier-option">
+                                    <input
+                                      type={group.multiSelect ? "checkbox" : "radio"}
+                                      name={`${line.menuItemId}-${groupKey}`}
+                                      checked={isSel}
+                                      onChange={(e) => setModifier(index, group, opt, e.target.checked)}
+                                    />
+                                    <span>{opt.name}</span>
+                                    {Number(opt.price) > 0 && <span className="modifier-option-price">+{formatCurrency(opt.price)}</span>}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="form-group">
+                        <label>Notes</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={line.notes}
+                          onChange={(e) => updateLine(index, { notes: e.target.value })}
+                          placeholder="Item notes"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {lines.length === 0 && <p className="form-hint">No items. Add items below.</p>}
+          </div>
+
+          <div className="edit-add-section">
+            <h4 className="edit-add-title">Add item</h4>
+            <div className="edit-add-controls">
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search menu…"
+                value={addQuery}
+                onChange={(e) => setAddQuery(e.target.value)}
+              />
+              <select
+                className="form-select"
+                value={addCategory}
+                onChange={(e) => setAddCategory(e.target.value)}
+              >
+                {activeCategories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="edit-add-grid">
+              {availableItems.slice(0, 12).map((it) => (
+                <button
+                  key={it._id}
+                  type="button"
+                  className="edit-add-item"
+                  onClick={() => addItem(it)}
+                >
+                  <span className="edit-add-item-name">{it.name}</span>
+                  <span className="edit-add-item-price">{formatCurrency(it.price)}</span>
+                </button>
+              ))}
+              {availableItems.length === 0 && <p className="form-hint">No more items to add.</p>}
+            </div>
+          </div>
+
+          <div className="edit-preview">
+            <div className="summary-row">
+              <span>Subtotal (preview)</span>
+              <span>{formatCurrency(previewSubtotal)}</span>
+            </div>
+            {previewDiscount > 0 && (
+              <div className="summary-row discount">
+                <span>Discount</span>
+                <span>−{formatCurrency(previewDiscount)}</span>
+              </div>
+            )}
+            <div className="summary-row total">
+              <span>Total (preview)</span>
+              <span>{formatCurrency(previewSubtotal - previewDiscount)}</span>
+            </div>
+            <p className="form-hint">Final tax, delivery fee and totals are recalculated by the server.</p>
+          </div>
+
+          <div className="form-group">
+            <label>Reason for edit</label>
+            <textarea
+              className="form-textarea"
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Optional — e.g. customer removed a dish"
+            />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving || lines.length === 0}>
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

@@ -11,12 +11,14 @@ const Payment = require("../models/Payment");
 const InventoryItem = require("../models/InventoryItem");
 const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
+const OrderEditHistory = require("../models/OrderEditHistory");
 const { handleError } = require("../utils/httpError");
 const { isPromoEligible } = require("../utils/promo");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
 const thermalPrinter = require("../services/thermalPrinter");
 const WebPushService = require("../services/webPush");
+const { calculateDeliveryFee, getBaseDeliveryFee } = require("../utils/delivery");
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "card", "upi", "wallet", "cod", "split"];
 const ALLOWED_ORDER_TYPES = ["dinein", "takeaway", "delivery"];
@@ -1019,6 +1021,16 @@ const updateOrderStatus = async (req, res) => {
       });
     }
 
+    // A partial order (additional payment due after an edit) must be settled
+    // before it can be marked completed — otherwise the extra amount would be
+    // silently lost.
+    if (normalizedStatus === "completed" && (Number(existingOrder.additionalAmountDue) || 0) > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Order has ₹${Number(existingOrder.additionalAmountDue).toLocaleString("en-IN")} additional payment due. Collect it before completing the order.`,
+      });
+    }
+
     const updatedOrder = await existingOrder.transitionTo(normalizedStatus, req.user._id);
 
     if (["cancelled", "refunded"].includes(normalizedStatus)) {
@@ -1692,6 +1704,636 @@ const markOrderPaid = async (req, res) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Edit existing order (safe, server-authoritative)
+// ---------------------------------------------------------------------------
+//
+// The frontend never sends financial values for an edit. It only sends the
+// desired `items` (menuItemId + qty + size/addons/notes) and an optional
+// `reason`. Every price, tax, charge and total is recomputed server-side from
+// the current menu data using the exact same calculation helpers as order
+// creation. The original order _id/orderNumber/customer/table/orderType/
+// servedBy are preserved so public tracking and kitchen polling keep working.
+
+const EDITABLE_ORDER_STATUSES = ["pending", "confirmed", "preparing", "paid"];
+const NON_EDITABLE_ORDER_STATUSES = [
+  "ready",
+  "served",
+  "out_for_delivery",
+  "delivered",
+  "completed",
+  "cancelled",
+  "refunded",
+];
+
+const normalizeModifierKey = (value) => String(value || "").toLowerCase().trim();
+
+// Validates one requested item against the current menu and returns a clean
+// item whose price/size/addons/tax/veg/category are all taken from the menu,
+// never from the request.
+const validateEditItem = async (item) => {
+  if (!item || !item.menuItemId || !mongoose.Types.ObjectId.isValid(item.menuItemId)) {
+    const err = new Error("Each item must reference a valid menu item");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const menuItem = await MenuItem.findById(item.menuItemId);
+  if (!menuItem) {
+    const err = new Error("Menu item not found");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!menuItem.isAvailable) {
+    const err = new Error(`${menuItem.name} is not currently available`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const qty = Number(item.qty);
+  if (!Number.isInteger(qty) || qty < 1) {
+    const err = new Error(`Quantity for ${menuItem.name} must be a whole number greater than zero`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const menuGroups = (menuItem.modifiers || []).map((group) => ({
+    key: normalizeModifierKey(group.name),
+    name: group.name,
+    required: !!group.required,
+    multiSelect: !!group.multiSelect,
+    minSelections: Number(group.minSelections) || 0,
+    maxSelections: Number.isFinite(Number(group.maxSelections)) ? Number(group.maxSelections) : 1,
+    options: (group.options || []).map((o) => ({ name: o.name, price: Number(o.price) || 0 })),
+  }));
+
+  const requestedMods = Array.isArray(item.modifiers) ? item.modifiers : [];
+  const cleanMods = [];
+  const selectedCountByGroup = new Map();
+
+  for (const mod of requestedMods) {
+    const groupKey = normalizeModifierKey(mod.name);
+    const group = menuGroups.find((g) => g.key === groupKey);
+    if (!group) {
+      const err = new Error(`Invalid modifier "${mod.name}" for ${menuItem.name}`);
+      err.statusCode = 400;
+      throw err;
+    }
+    const option = group.options.find(
+      (o) => normalizeModifierKey(o.name) === normalizeModifierKey(mod.option)
+    );
+    if (!option) {
+      const err = new Error(`Invalid option "${mod.option}" for modifier "${group.name}"`);
+      err.statusCode = 400;
+      throw err;
+    }
+    selectedCountByGroup.set(group.name, (selectedCountByGroup.get(group.name) || 0) + 1);
+    cleanMods.push({ name: group.name, option: option.name, price: option.price });
+  }
+
+  for (const group of menuGroups) {
+    const selected = selectedCountByGroup.get(group.name) || 0;
+    const min = group.required ? Math.max(group.minSelections, 1) : group.minSelections;
+    if (group.required && selected < min) {
+      const err = new Error(`${menuItem.name}: "${group.name}" is required`);
+      err.statusCode = 400;
+      throw err;
+    }
+    if (selected > group.maxSelections) {
+      const err = new Error(`${menuItem.name}: too many selections for "${group.name}"`);
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!group.multiSelect && selected > 1) {
+      const err = new Error(`${menuItem.name}: choose only one option for "${group.name}"`);
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+
+  const sizeMod = cleanMods.find((m) => SIZE_MODIFIER_PATTERN.test(m.name));
+  const modifierPrice = cleanMods.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+  const price = Math.round(((Number(menuItem.price) || 0) + modifierPrice) * 100) / 100;
+
+  return {
+    name: menuItem.name,
+    price,
+    qty,
+    menuItemId: menuItem._id,
+    category: menuItem.category ? String(menuItem.category) : "",
+    isVeg: menuItem.isVeg !== undefined ? menuItem.isVeg : true,
+    taxRate: menuItem.taxRate || 0,
+    modifiers: cleanMods,
+    size: (sizeMod && sizeMod.option) || (item.size && String(item.size).trim()) || "",
+    notes: typeof item.notes === "string" ? item.notes.slice(0, 500) : "",
+    // Addon display no longer needs price handling here: price was recomputed
+    // from the menu. Keep sizeAddonsPrice 0 so no legacy aggregation breaks.
+    sizeAddonsPrice: 0,
+    kitchenStatus: "pending",
+    kitchenStation: "",
+    servedAt: null,
+  };
+};
+
+// Signature used to match unchanged items so kitchen lifecycle state (status,
+// station, servedAt) and notes survive an edit for items that did not change.
+const itemSignature = (item) => {
+  const mods = (item.modifiers || [])
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+    .map((m) => `${m.name}:${m.option}`)
+    .join("|");
+  return `${String(item.menuItemId || "")}|${String(item.size || "")}|${mods}|${Number(item.qty) || 0}`;
+};
+
+const carryKitchenState = (oldItems, newItems) => {
+  const pool = new Map();
+  for (const oldItem of oldItems || []) {
+    const key = itemSignature(oldItem);
+    if (!pool.has(key)) pool.set(key, []);
+    pool.get(key).push(oldItem);
+  }
+
+  return newItems.map((newItem) => {
+    const key = itemSignature(newItem);
+    const match = (pool.get(key) || []).shift();
+    if (!match) return newItem;
+    return {
+      ...newItem,
+      kitchenStatus: match.kitchenStatus || "pending",
+      kitchenStation: match.kitchenStation || "",
+      servedAt: match.servedAt || null,
+      notes: newItem.notes || match.notes || "",
+      kitchenStatusUnchanged: true,
+    };
+  });
+};
+
+// Total amount already collected for an order, derived from the paid Payment
+// ledger (the single source of truth). Falls back to the previous order total
+// only when the order claims to be paid but no ledger row exists (legacy data).
+const getPaidAmount = async (order) => {
+  const paidRecords = await Payment.find({ order: order._id, status: "paid" });
+  if (paidRecords.length > 0) {
+    return Math.round(paidRecords.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) * 100) / 100;
+  }
+  if (order.paymentStatus === "paid") {
+    return Math.round((Number(order.total) || 0) * 100) / 100;
+  }
+  return 0;
+};
+
+const flattenItemForAudit = (item) => ({
+  name: item.name,
+  price: Number(item.price) || 0,
+  qty: Number(item.qty) || 0,
+  menuItemId: item.menuItemId || null,
+  size: item.size ? String(item.size) : "",
+  modifiers: Array.isArray(item.modifiers)
+    ? item.modifiers.map((m) => ({ name: m.name, option: m.option, price: Number(m.price) || 0 }))
+    : [],
+  notes: item.notes || "",
+});
+
+// Reconcile inventory by the NET difference between the old and new order item
+// sets. Only applies when stock was already deducted for the order; otherwise
+// the normal status-transition deduction handles the final set. Incorrect
+// double-deduction is prevented because no per-item deduction happens here —
+// every affected inventory row moves by (newQty - oldQty) in one pass.
+// Compute the net per-inventory-item delta implied by an item-set edit. Pure
+// calculation (no writes) so the caller can run the availability pre-check
+// BEFORE persisting anything — a shortage must never leave a half-saved edit.
+const computeInventoryDeltasForEdit = async (oldItems, newItems) => {
+  const oldQty = new Map();
+  const newQty = new Map();
+  for (const it of oldItems || []) {
+    if (it.menuItemId) oldQty.set(String(it.menuItemId), (oldQty.get(String(it.menuItemId)) || 0) + it.qty);
+  }
+  for (const it of newItems || []) {
+    if (it.menuItemId) newQty.set(String(it.menuItemId), (newQty.get(String(it.menuItemId)) || 0) + it.qty);
+  }
+
+  const menuIds = new Set([...oldQty.keys(), ...newQty.keys()]);
+  const inventoryDeltas = new Map();
+
+  for (const menuId of menuIds) {
+    const recipe = await Recipe.getByMenuItem(menuId);
+    if (!recipe || !recipe.isActive) continue;
+
+    const deltaQty = (newQty.get(menuId) || 0) - (oldQty.get(menuId) || 0);
+    if (deltaQty === 0) continue;
+
+    for (const ingredient of recipe.ingredients) {
+      if (!ingredient.item || !ingredient.item._id) continue;
+      const inventoryItem = await InventoryItem.findById(ingredient.item._id);
+      if (!inventoryItem) continue;
+
+      // adjustStock(quantity) MOVES currentStock BY quantity: negative consumes,
+      // positive restores. An edit that adds items (deltaQty > 0) must consume
+      // the extra portion, so the adjustment is the inverse of deltaQty.
+      const delta = -deltaQty * (Number(ingredient.quantity) || 0);
+      if (delta === 0) continue;
+
+      const key = String(inventoryItem._id);
+      const entry = inventoryDeltas.get(key) || { inventoryItem, delta: 0 };
+      entry.delta += delta;
+      inventoryDeltas.set(key, entry);
+    }
+  }
+
+  return inventoryDeltas;
+};
+
+// Apply previously pre-checked inventory deltas as a single net adjustment per
+// inventory item (never a double-deduction of unchanged portions). Best-effort,
+// matching the existing deduct/restore tolerance: failures are logged, not
+// thrown, because the order save already succeeded and financial correctness is
+// unaffected.
+const applyInventoryDeltasForEdit = async (order, inventoryDeltas, userId) => {
+  for (const { inventoryItem, delta } of inventoryDeltas.values()) {
+    const movement = await inventoryItem.adjustStock(
+      delta,
+      `Order ${order.orderNumber} edited: net ${delta > 0 ? "+" : ""}${delta}`,
+      order._id,
+      "order_edit",
+      userId
+    );
+    await StockMovement.create({ ...movement, createdBy: userId });
+  }
+  return inventoryDeltas.size;
+};
+
+const editOrderItems = async (req, res) => {
+  const fail = (status, message) => res.status(status).json({ success: false, message });
+
+  try {
+    const { id } = req.params;
+    const { items, reason, baseUpdatedAt } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return fail(400, "Invalid order id");
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return fail(400, "Items are required");
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return fail(404, "Order not found");
+    }
+
+    if (NON_EDITABLE_ORDER_STATUSES.includes(order.orderStatus)) {
+      return fail(400, `Cannot edit an order that is ${order.orderStatus}`);
+    }
+    if (!EDITABLE_ORDER_STATUSES.includes(order.orderStatus)) {
+      return fail(400, `Cannot edit an order in status ${order.orderStatus}`);
+    }
+
+    const cleanItems = [];
+    for (const item of items) {
+      cleanItems.push(await validateEditItem(item));
+    }
+
+    const oldItems = order.items || [];
+    const finalItems = carryKitchenState(oldItems, cleanItems);
+
+    if (finalItems.length === 0) {
+      return fail(400, "Order must have at least one item");
+    }
+
+    // Server-side financial recalculation — every value below is derived from
+    // the current menu/settings, never accepted from the request.
+    const subtotal = Math.round(
+      finalItems.reduce((sum, item) => sum + item.price * item.qty, 0) * 100
+    ) / 100;
+
+    // The previously applied discount amount is preserved as a flat rupee value
+    // so the customer's effective discount never grows during a staff edit.
+    // The original coupon/percent metadata is not reused against the new total.
+    const totalDiscount = Math.min(Number(order.discount) || 0, subtotal);
+
+    const isInterState =
+      order.deliveryAddress &&
+      order.deliveryAddress.state &&
+      order.deliveryAddress.state !== (await Settings.getValue("restaurant_state", ""));
+
+    const { cgst, sgst, igst, totalTax } = await calculateTax(
+      subtotal - totalDiscount,
+      finalItems,
+      isInterState
+    );
+    const serviceCharge = await calculateServiceCharge(subtotal - totalDiscount);
+
+    // Delivery fee is distance-based and untouched by an item edit. Recompute
+    // it only from the stored address distance when available; otherwise keep
+    // the existing charged fee exactly as-is (delivery-fee rules unchanged).
+    let deliveryFee = Math.round((Number(order.deliveryFee) || 0) * 100) / 100;
+    if (order.orderType === "delivery" && order.deliveryAddress && order.deliveryAddress.distanceKm) {
+      const distanceKm = Number(order.deliveryAddress.distanceKm);
+      const base = await getBaseDeliveryFee();
+      deliveryFee = Math.max(base, calculateDeliveryFee(distanceKm));
+    }
+
+    const loyaltyPointsUsed = Number(order.loyaltyPointsUsed) || 0;
+    let loyaltyPointsValue = 0;
+    if (loyaltyPointsUsed > 0) {
+      const loyaltyConfig = await LoyaltyConfig.getConfig();
+      loyaltyPointsValue = loyaltyConfig.rupeePerPoint * loyaltyPointsUsed;
+    }
+
+    let total = subtotal - totalDiscount + totalTax + serviceCharge + deliveryFee - loyaltyPointsValue;
+    total = Math.round(total * 100) / 100;
+    const roundingAdjustment = Math.round(total) - total;
+    total = Math.round(total);
+
+    // Payment delta handling.
+    const paidAmount = await getPaidAmount(order);
+    const difference = Math.round((total - Number(order.total || 0)) * 100) / 100;
+
+    let paymentStatus = order.paymentStatus;
+    let additionalAmountDue = 0;
+    let refundAmountDue = 0;
+
+    if (paidAmount > 0) {
+      if (total > paidAmount) {
+        additionalAmountDue = Math.round((total - paidAmount) * 100) / 100;
+        paymentStatus = "partial";
+      } else {
+        refundAmountDue = Math.round((paidAmount - total) * 100) / 100;
+        paymentStatus = "paid";
+      }
+    } else {
+      paymentStatus = "pending";
+    }
+
+    const updateData = {
+      items: finalItems,
+      subtotal,
+      tax: totalTax,
+      cgst,
+      sgst,
+      igst,
+      serviceCharge,
+      discount: totalDiscount,
+      discountType: "flat",
+      discountReason: order.discountReason || "",
+      couponCode: null,
+      total,
+      roundingAdjustment,
+      deliveryFee,
+      loyaltyPointsUsed,
+      paymentStatus,
+      additionalAmountDue,
+      refundAmountDue,
+      updatedBy: req.user._id,
+      updatedAt: new Date(),
+    };
+
+    // Inventory availability pre-check (net increases only) BEFORE any write.
+    // A shortage here rejects the whole edit without touching the order or the
+    // stock ledger, so stock can never be oversold by an item edit.
+    let inventoryDeltas = new Map();
+    if (order.inventoryDeducted) {
+      inventoryDeltas = await computeInventoryDeltasForEdit(oldItems, finalItems);
+      const shortages = [];
+      for (const { inventoryItem, delta } of inventoryDeltas.values()) {
+        if (delta < 0 && inventoryItem.currentStock < Math.abs(delta)) {
+          shortages.push({
+            name: inventoryItem.name,
+            requiredQty: Math.abs(delta),
+            availableQty: inventoryItem.currentStock,
+          });
+        }
+      }
+      if (shortages.length > 0) {
+        const err = new Error(
+          `Insufficient inventory: ${shortages
+            .map((s) => `${s.name} (need ${s.requiredQty}, available ${s.availableQty})`)
+            .join(", ")}`
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+
+    // Optimistic concurrency: if the client supplied the order's updatedAt when
+    // it opened the editor, only apply the write when the order has not been
+    // touched by someone else since then.
+    const filter = { _id: order._id };
+    if (baseUpdatedAt) {
+      filter.updatedAt = new Date(baseUpdatedAt);
+    }
+
+    const updated = await Order.findOneAndUpdate(filter, { $set: updateData }, { new: true });
+
+    if (!updated) {
+      return fail(
+        409,
+        "This order was modified by someone else. Reload it and review the latest items before saving again."
+      );
+    }
+
+    let editHistory = null;
+    try {
+      editHistory = await OrderEditHistory.create({
+        order: order._id,
+        orderNumber: order.orderNumber,
+        editedBy: req.user._id,
+        previousItems: oldItems.map(flattenItemForAudit),
+        newItems: finalItems.map(flattenItemForAudit),
+        previousTotal: Math.round((Number(order.total) || 0) * 100) / 100,
+        newTotal: total,
+        difference,
+        previousSubtotal: Math.round((Number(order.subtotal) || 0) * 100) / 100,
+        newSubtotal: subtotal,
+        paymentRequirement: additionalAmountDue,
+        refundRequirement: refundAmountDue,
+        reason: typeof reason === "string" ? reason.slice(0, 500) : "",
+      });
+    } catch (historyError) {
+      console.error("ORDER EDIT HISTORY SAVE FAILED:", historyError.message);
+    }
+
+    // Apply inventory deltas (already pre-checked, net only). Best-effort:
+    // a post-save apply failure is logged, not thrown — financial correctness
+    // was fixed at save time and stock mismatches surface via the dashboard.
+    let inventoryReconciled = false;
+    if (order.inventoryDeducted && inventoryDeltas.size > 0) {
+      try {
+        await applyInventoryDeltasForEdit(updated, inventoryDeltas, req.user._id);
+        inventoryReconciled = true;
+      } catch (inventoryError) {
+        console.error("ORDER EDIT INVENTORY RECONCILE FAILED:", inventoryError.message);
+      }
+    }
+
+    try {
+      await createNotificationForAdmins({
+        type: "order",
+        title: "Order Edited",
+        message: `${updated.orderNumber} · previous ₹${Number(order.total || 0).toLocaleString("en-IN")} → ₹${total.toLocaleString("en-IN")}`,
+        link: "/",
+        entityId: updated._id,
+      });
+    } catch (notifyError) {
+      console.error("ORDER EDIT NOTIFICATION ERROR:", notifyError.message);
+    }
+
+    const populatedOrder = await Order.findById(updated._id)
+      .populate("customer", "name phone email")
+      .populate("table", "number zone")
+      .populate("updatedBy", "name")
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      message: "Order updated successfully",
+      order: populatedOrder,
+      edit: {
+        previousTotal: Math.round((Number(order.total) || 0) * 100) / 100,
+        newTotal: total,
+        difference,
+        paymentStatus,
+        additionalAmountDue,
+        refundAmountDue,
+        inventoryReconciled,
+      },
+    });
+  } catch (error) {
+    console.log("EDIT ORDER ERROR:", error);
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    if (error.name === "ValidationError") {
+      return handleError(res, error);
+    }
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: "Duplicate order or invoice number" });
+    }
+    return handleError(res, error);
+  }
+};
+
+// Collect an additional payment due (from an edit that increased a paid order).
+// Manual (cash/card/wallet) path: staff records collection, idempotent atomic
+// claim, ledger write mirrors the existing markOrderPaid pattern. The order is
+// only marked fully paid when the ledger actually covers the new total.
+const collectAdditionalPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      method = "cash",
+      transactionId,
+      notes,
+    } = req.body;
+    const ALLOWED_ADDITIONAL_METHODS = ["cash", "card", "wallet", "upi"];
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order id" });
+    }
+    if (!ALLOWED_ADDITIONAL_METHODS.includes(method)) {
+      return res.status(400).json({
+        success: false,
+        message: `Additional payment method must be one of: ${ALLOWED_ADDITIONAL_METHODS.join(", ")}`,
+      });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    if (["cancelled", "refunded"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot collect additional payment for a cancelled or refunded order",
+      });
+    }
+
+    const additional = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
+    if (additional <= 0) {
+      return res.status(400).json({ success: false, message: "No additional payment is due" });
+    }
+
+    // Atomic claim so two concurrent requests cannot collect twice.
+    const claimed = await Order.findOneAndUpdate(
+      { _id: id, additionalAmountDue: { $gt: 0 }, additionalPaymentInProgress: { $ne: true } },
+      { $set: { additionalPaymentInProgress: true, updatedAt: new Date() } },
+      { new: true }
+    );
+    if (!claimed) {
+      // Either already collected or another request is in progress.
+      const latest = await Order.findById(id);
+      const stillDue = Math.round((Number(latest?.additionalAmountDue) || 0) * 100) / 100;
+      if (stillDue <= 0) {
+        return res.status(200).json({ success: true, message: "Additional payment already collected", order: latest });
+      }
+      return res.status(409).json({
+        success: false,
+        message: "Another additional payment collection is already in progress",
+      });
+    }
+
+    try {
+      await Payment.create({
+        order: claimed._id,
+        customer: claimed.customer || null,
+        amount: additional,
+        method,
+        gateway: "manual",
+        status: "paid",
+        transactionId: transactionId || `additional-${claimed.orderNumber}`,
+        collectedBy: req.user._id,
+        collectedAt: new Date(),
+        notes: notes?.trim() || `Additional payment for edited order`,
+        metadata: {
+          additionalPayment: true,
+          reason: "order_edit",
+        },
+      });
+
+      const newPaidAmount = (await getPaidAmount(claimed)) + additional;
+      const fullyPaid = newPaidAmount >= (Number(claimed.total) || 0);
+
+      await Order.updateOne(
+        { _id: claimed._id },
+        {
+          $set: {
+            paymentStatus: fullyPaid ? "paid" : "partial",
+            additionalAmountDue: fullyPaid ? 0 : Math.round((Number(claimed.total) - newPaidAmount) * 100) / 100,
+            additionalPaymentInProgress: false,
+            paidAt: fullyPaid ? new Date() : claimed.paidAt,
+            updatedBy: req.user._id,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    } catch (paymentError) {
+      console.error("ADDITIONAL PAYMENT COLLECT ERROR:", paymentError);
+      await Order.updateOne(
+        { _id: claimed._id, additionalPaymentInProgress: true },
+        { $set: { additionalPaymentInProgress: false, updatedAt: new Date() } }
+      ).catch(() => {});
+      throw paymentError;
+    }
+
+    const populatedOrder = await Order.findById(claimed._id)
+      .populate("customer", "name phone")
+      .populate("table", "number zone")
+      .populate("updatedBy", "name")
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      message: "Additional payment collected",
+      order: populatedOrder,
+    });
+  } catch (error) {
+    console.log("COLLECT ADDITIONAL PAYMENT ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   createOrder,
   getAllOrders,
@@ -1706,6 +2348,8 @@ module.exports = {
   printKOT,
   printInvoice,
   markOrderPaid,
+  editOrderItems,
+  collectAdditionalPayment,
   calculateTax,
   calculateServiceCharge,
   applyCoupon,
