@@ -33,7 +33,7 @@ const clearAuth = () => {
   localStorage.removeItem("token");
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
-  window.location.href = "/login";
+  window.location.href = "/pos/login";
 };
 
 const requestNewAccessToken = async () => {

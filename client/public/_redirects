@@ -1,15 +1,8 @@
-# Convenience redirects
-/cart /website/cart 301
-/cart/* /website/cart/:splat 301
+# POS SPA fallback - must precede the public website catch-all
+/pos/* /pos/index.html 200
 
-/checkout /website/checkout 301
-/checkout/* /website/checkout/:splat 301
-
-/track /website/track 301
-/track/* /website/track/:splat 301
-
-# Public website SPA fallback
-/website/* /website/index.html 200
-
-# POS SPA fallback - MUST remain last
+# Public website SPA fallback.
+# /menu, /cart, /checkout, /track and /order-confirmation have static
+# directory index.html files; this catch-all serves the website shell for
+# every other public deep route (e.g. /menu/:id, /track/:orderNumber).
 /* /index.html 200

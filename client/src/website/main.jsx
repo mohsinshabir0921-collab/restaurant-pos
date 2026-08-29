@@ -5,7 +5,7 @@ import "./website-extras.css";
 import WebsiteApp from "./WebsiteApp.jsx";
 
 createRoot(document.getElementById("root")).render(
-  <BrowserRouter basename="/website">
+  <BrowserRouter basename="/">
     <WebsiteApp />
   </BrowserRouter>
 );

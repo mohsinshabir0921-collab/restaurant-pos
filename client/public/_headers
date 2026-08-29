@@ -1,8 +1,8 @@
 /*
   X-Robots-Tag: index, follow
 
-/website/*
-  X-Robots-Tag: index, follow
+/pos/*
+  X-Robots-Tag: noindex, nofollow
 
-/website
-  X-Robots-Tag: index, follow
+/pos
+  X-Robots-Tag: noindex, nofollow

@@ -3,56 +3,25 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  const redirects = [
-    ["/cart", "/website/cart"],
-    ["/checkout", "/website/checkout"],
-    ["/track", "/website/track"],
-  ];
-  for (const [from, to] of redirects) {
-    if (path === from) {
-      return Response.redirect(new URL(to, url), 301);
-    }
-    if (path.startsWith(from + "/")) {
-      return Response.redirect(new URL(to + path.slice(from.length), url), 301);
-    }
-  }
-
+  // Static assets always pass through to the asset store
   const isAsset = path.startsWith("/assets/") || path.startsWith("/images/") || path.includes(".");
   if (isAsset) {
     const assetResponse = await env.ASSETS.fetch(request);
     if (assetResponse.status !== 404) return assetResponse;
   }
 
-  // Website SPA routes
-  if (path === "/website" || path.startsWith("/website/")) {
-    // Known static website paths that have directory index files
-    const staticWebsitePaths = new Set([
-      "/website",
-      "/website/",
-      "/website/menu",
-      "/website/menu/",
-      "/website/cart",
-      "/website/cart/",
-      "/website/checkout",
-      "/website/checkout/",
-      "/website/track",
-      "/website/track/",
-      "/website/order-confirmation",
-      "/website/order-confirmation/",
-    ]);
-    if (staticWebsitePaths.has(path)) {
-      const assetResponse = await env.ASSETS.fetch(request);
-      if (assetResponse.status !== 404) return assetResponse;
-      return env.ASSETS.fetch(new URL("/website/index.html", url));
-    }
-    // All other website paths are SPA deep routes -> serve website index
-    return env.ASSETS.fetch(new URL("/website/index.html", url));
+  // POS deep-link fallback -> POS SPA shell (/pos and /pos/ are served by the
+  // static directory index at pos/index.html).
+  if (path.startsWith("/pos/")) {
+    const posResponse = await env.ASSETS.fetch(new URL("/pos/index.html", url));
+    if (posResponse.status !== 404) return posResponse;
   }
 
+  // Public website: static directory indices exist for /, /menu, /cart,
+  // /checkout, /track and /order-confirmation. Any other public route is a
+  // website SPA deep link -> serve the website shell at index.html.
   const assetResponse = await env.ASSETS.fetch(request);
-  if (assetResponse.status !== 404) {
-    return assetResponse;
-  }
+  if (assetResponse.status !== 404) return assetResponse;
 
   return env.ASSETS.fetch(new URL("/index.html", url));
 }

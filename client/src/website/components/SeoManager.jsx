@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useWebsite } from "../context/WebsiteContext";
 
 const ORIGIN = "https://khyennchyenn.co.in";
-const BASE = `${ORIGIN}/website`;
+const BASE = ORIGIN;
 
 const DEFAULT_DESCRIPTION =
   "Order delicious food online for takeaway or delivery. View our menu, order, and pay securely online.";
