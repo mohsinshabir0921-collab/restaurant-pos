@@ -51,147 +51,152 @@
 }
 
 /* --------------------------------------------------------------------------
-   HERO — cinematic, photography-led, type-forward
+   HERO — "Warm Cinematic Editorial".
+   Full-bleed food photography as the dominant, integrated element. Strong
+   dark gradient overlay keeps copy readable. No floating sticker / cutout.
+   Mobile-first. Coherent breakpoints: 768px (tablet) and 1024px (desktop).
+   Motion is gated by prefers-reduced-motion and coarse pointers in the JSX.
    -------------------------------------------------------------------------- */
 .hp-hero {
   position: relative;
   min-height: 100svh;
   margin-top: calc(-1 * var(--header-h));
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   overflow: hidden;
   color: var(--hp-cream);
   isolation: isolate;
-  background:
-    radial-gradient(118% 98% at 28% 16%, #c4422d 0%, #9c2a1c 28%, #6c1611 60%, #3f0d0a 100%),
-    linear-gradient(135deg, #841d14 0%, #4a0f0d 100%);
+  background: #0d0c0a;
 }
 
+.hp-hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  /* Keep the food plate visually anchored toward the middle-upper area so it
+     stays present, while the lower band hosts the copy on the gradient. */
+}
+
+.hp-hero-media-el {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 38%;
+  display: block;
+}
+
+/* Strong dark scrim so text stays readable over the photo. Tailored per
+   breakpoint: heavier at the bottom (mobile copy zone) / left (desktop copy). */
 .hp-hero-scrim {
   position: absolute;
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background:
-    radial-gradient(120% 120% at 50% 38%, transparent 52%, rgba(0, 0, 0, 0.34) 100%),
-    linear-gradient(100deg, rgba(13, 12, 10, 0.92) 0%, rgba(13, 12, 10, 0.42) 30%, rgba(13, 12, 10, 0) 58%),
-    linear-gradient(180deg, rgba(13, 12, 10, 0.5) 0%, rgba(13, 12, 10, 0) 20%),
-    linear-gradient(0deg, rgba(13, 12, 10, 0.98) 0%, rgba(13, 12, 10, 0) 30%);
+    linear-gradient(180deg, rgba(13, 12, 10, 0.62) 0%, rgba(13, 12, 10, 0.22) 34%, rgba(13, 12, 10, 0.4) 60%, rgba(13, 12, 10, 0.97) 100%);
 }
 
-.hp-hero-scrim::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.07;
-  mix-blend-mode: overlay;
-  background-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27140%27 height=%27140%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.9%27 numOctaves=%272%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/%3E%3C/svg%3E');
+/* Mobile-only: localize extra darkness behind the eyebrow + headline so the
+   cream copy stays readable (>=4.5:1) where it crosses the bright pizza,
+   while the food stays visible in the upper region. The radial pools dark
+   from below the copy zone and fades out by ~78% height; the linear deepens
+   the mid band only. Desktop (>=768px) keeps the original scrim untouched. */
+@media (max-width: 767px) {
+  .hp-hero-scrim {
+    background:
+      radial-gradient(125% 105% at 50% 112%, rgba(13, 12, 10, 0.88) 0%, rgba(13, 12, 10, 0.55) 58%, rgba(13, 12, 10, 0) 82%),
+      linear-gradient(180deg, rgba(13, 12, 10, 0.65) 0%, rgba(13, 12, 10, 0.52) 40%, rgba(13, 12, 10, 0.7) 62%, rgba(13, 12, 10, 0.97) 100%);
+  }
 }
 
-.hp-hero-monogram {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -54%);
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: clamp(26rem, 58vw, 56rem);
-  line-height: 1;
-  color: rgba(244, 230, 210, 0.05);
-  pointer-events: none;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.hp-hero-dish {
-  position: absolute;
+.hp-hero .container.hp-hero-content {
+  position: relative;
   z-index: 2;
-  top: 50%;
-  right: clamp(-8px, 3vw, 56px);
-  transform: translateY(-50%);
-  width: clamp(280px, 36vw, 540px);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.hp-hero-dish::before {
-  content: '';
-  position: absolute;
-  inset: -14% -12% -20% -12%;
-  z-index: 0;
-  background: radial-gradient(56% 56% at 50% 52%, rgba(190, 58, 36, 0.24), transparent 72%);
-  filter: blur(14px);
-}
-
-.hp-hero-dish-img {
-  position: relative;
-  z-index: 1;
   width: 100%;
-  height: auto;
-  display: block;
-  filter: drop-shadow(0 22px 38px rgba(0, 0, 0, 0.38));
-  -webkit-mask-image: radial-gradient(58% 58% at 50% 50%, #000 62%, rgba(0, 0, 0, 0.45) 76%, transparent 92%);
-  mask-image: radial-gradient(58% 58% at 50% 50%, #000 62%, rgba(0, 0, 0, 0.45) 76%, transparent 92%);
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: calc(var(--header-h) + clamp(16px, 4vh, 40px) + env(safe-area-inset-top));
+  padding-bottom: calc(clamp(28px, 8vh, 72px) + env(safe-area-inset-bottom));
+  padding-left: clamp(20px, 6vw, 48px);
+  padding-right: clamp(20px, 6vw, 48px);
+  text-align: left;
 }
 
-.hp-hero .hp-hero-content {
-  position: relative;
-  z-index: 3;
-  width: 100%;
-  max-width: 520px;
-  margin: 0;
-  margin-right: auto;
-  padding-top: clamp(120px, 17vh, 200px);
-  padding-bottom: clamp(56px, 10vh, 120px);
-  padding-left: clamp(24px, 6vw, 104px);
-  padding-right: 0;
+.hp-hero-eyebrow,
+.hp-hero-title,
+.hp-hero-tagline,
+.hp-hero-sub,
+.hp-hero-meta {
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
-.hp-hero-brand,
-.hp-hero-kicker {
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.45);
-}
-
-.hp-hero-kicker {
+.hp-hero-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  margin: 0 0 22px;
-  font-size: 0.72rem;
+  margin: 0 0 clamp(14px, 3vh, 24px);
+  font-size: clamp(0.66rem, 2.6vw, 0.78rem);
   font-weight: 600;
-  letter-spacing: 0.34em;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: rgba(248, 240, 224, 0.62);
+  color: var(--hp-saffron);
+  max-width: 100%;
 }
 
-.hp-hero-kicker-rule {
+.hp-hero-eyebrow-rule {
+  flex: none;
   width: 42px;
   height: 1px;
-  background: linear-gradient(90deg, rgba(216, 184, 118, 0.9), rgba(216, 184, 118, 0.2));
+  background: linear-gradient(90deg, var(--hp-saffron), rgba(224, 146, 43, 0.2));
 }
 
-.hp-hero-brand {
-  margin: 0 0 30px;
+.hp-hero-title {
+  margin: 0;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(2.6rem, 5.4vw, 4.6rem);
-  line-height: 1.0;
+  font-size: clamp(2.6rem, 11vw, 3.4rem);
+  line-height: 1.02;
   letter-spacing: -0.015em;
   color: #f8f0e0;
+  overflow-wrap: break-word;
+}
+
+.hp-hero-tagline {
+  margin: clamp(14px, 3vh, 24px) 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 4.6vw, 1.6rem);
+  line-height: 1.25;
+  color: var(--hp-cream-2);
+  max-width: 40ch;
+}
+
+.hp-hero-sub {
+  margin: clamp(12px, 2.6vh, 20px) 0 0;
+  font-size: clamp(0.95rem, 3.4vw, 1.05rem);
+  line-height: 1.55;
+  color: var(--hp-dim);
+  max-width: 46ch;
+}
+
+.hp-hero-meta {
+  margin: clamp(14px, 3vh, 22px) 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(247, 240, 227, 0.66);
 }
 
 .hp-hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
-  margin-top: 0;
+  gap: 14px;
+  margin-top: clamp(22px, 5vh, 36px);
 }
 
 .hp-hero-actions .btn {
   position: relative;
-  min-width: 184px;
   justify-content: center;
+  min-width: 0;
   padding: 15px 30px;
   border-radius: 6px;
   font-weight: 600;
@@ -201,6 +206,7 @@
   border: 1px solid transparent;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.4s ease,
     border-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease;
+  white-space: nowrap;
 }
 
 .hp-hero-actions .btn-light {
@@ -231,69 +237,45 @@
   box-shadow: 0 14px 38px rgba(0, 0, 0, 0.3);
 }
 
-.hp-hero-scroll {
-  position: absolute;
-  left: 50%;
-  bottom: 30px;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.66rem;
-  letter-spacing: 0.34em;
-  text-transform: uppercase;
-  color: rgba(247, 240, 227, 0.55);
+/* Tablet — copy block widens a touch, food stays integrated. */
+@media (min-width: 768px) {
+  .hp-hero .container.hp-hero-content {
+    max-width: 620px;
+    padding-left: clamp(28px, 7vw, 64px);
+    padding-right: clamp(28px, 7vw, 64px);
+  }
+  .hp-hero-title {
+    font-size: clamp(3rem, 6.5vw, 4.2rem);
+  }
+  .hp-hero-actions .btn {
+    min-width: 200px;
+  }
 }
 
-.hp-hero-scroll-line {
-  width: 1px;
-  height: 48px;
-  background: linear-gradient(180deg, rgba(216, 184, 118, 0.55), rgba(216, 184, 118, 0));
-  position: relative;
-  overflow: hidden;
-}
-
-.hp-hero-scroll-line::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 14px;
-  background: #f3e7cc;
-  animation: hpScrollDot 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-
-@keyframes hpScrollDot {
-  0% { transform: translateY(-100%); }
-  60%, 100% { transform: translateY(300%); }
-}
-
-@media (max-width: 900px) {
+/* Desktop — cinematic split: copy on a deliberate safe left column, strong
+   left-to-right dark gradient pulling the eye across to the food on the right. */
+@media (min-width: 1024px) {
   .hp-hero {
-    min-height: 92svh;
+    align-items: center;
   }
   .hp-hero-scrim {
     background:
-      linear-gradient(180deg, rgba(20, 7, 9, 0.5) 0%, rgba(20, 7, 9, 0.12) 28%, rgba(20, 7, 9, 0.55) 70%, rgba(13, 12, 10, 0.96) 100%),
-      radial-gradient(120% 80% at 50% 0%, rgba(24, 7, 9, 0.4), transparent 60%);
+      linear-gradient(90deg, rgba(13, 12, 10, 0.92) 0%, rgba(13, 12, 10, 0.55) 34%, rgba(13, 12, 10, 0.12) 64%, rgba(13, 12, 10, 0) 78%),
+      linear-gradient(180deg, rgba(13, 12, 10, 0.5) 0%, rgba(13, 12, 10, 0.12) 28%, rgba(13, 12, 10, 0.5) 82%, rgba(13, 12, 10, 0.96) 100%);
   }
-  .hp-hero .hp-hero-content {
-    max-width: 640px;
-    padding-left: clamp(20px, 6vw, 40px);
-    padding-right: clamp(20px, 6vw, 40px);
+  .hp-hero .container.hp-hero-content {
+    margin-right: auto;
+    margin-left: 0;
+    max-width: 560px;
+    padding-left: clamp(40px, 6vw, 104px);
+    padding-right: 40px;
+    padding-bottom: clamp(48px, 10vh, 120px);
   }
-  .hp-hero-dish {
-    top: auto;
-    bottom: -10%;
-    right: -16%;
-    transform: none;
-    width: clamp(240px, 82vw, 420px);
+  .hp-hero-title {
+    font-size: clamp(3.4rem, 5vw, 5rem);
   }
-  .hp-hero-brand {
-    font-size: clamp(2.2rem, 8.5vw, 3.2rem);
+  .hp-hero-actions {
+    gap: 18px;
   }
 }
 /* --------------------------------------------------------------------------
@@ -991,7 +973,6 @@
    REDUCED MOTION — disable all decorative motion
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .hp-hero-scroll span::after,
   .hp-featured-skeleton {
     animation: none;
   }
@@ -1048,30 +1029,15 @@
   }
 }
 
-/* Phone-only hero dish fix: the exploded pizza was sitting too low and felt
-   cramped/cut off at the bottom-right. On phones, center it horizontally,
-   lift it up and scale it down just enough that the full composition fits
-   naturally and stays fully visible (no clipping). Fluid vw/% values keep it
-   balanced across 320–430px. The dish stays behind the hero text (z-index 2
-   vs content z-index 3) so readability is preserved. Tablet (<=900px base
-   rule) and desktop are intentionally untouched. */
-@media (max-width: 480px) {
-  .hp-hero-dish {
-    top: auto;
-    bottom: 14%;
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
-    width: clamp(200px, 74vw, 320px);
+/* Small phones: stack CTAs full-width so they never overflow, keeping the
+   food clearly visible above and the buttons comfortably inside the viewport. */
+@media (max-width: 440px) {
+  .hp-hero-actions {
+    width: 100%;
   }
-}
-
-/* Slightly tighter on the smallest phones so the whole stack clears the
-   viewport edges and the hero top. */
-@media (max-width: 360px) {
-  .hp-hero-dish {
-    bottom: 16%;
-    width: clamp(190px, 72vw, 260px);
+  .hp-hero-actions .btn {
+    flex: 1 1 100%;
+    min-width: 0;
   }
 }
 

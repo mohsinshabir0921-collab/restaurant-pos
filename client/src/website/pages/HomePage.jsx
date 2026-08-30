@@ -18,8 +18,6 @@ export default function HomePage() {
 
   const tagline = getSetting("restaurant_tagline", "Delicious food, delivered with love");
   const description = getSetting("restaurant_description", "");
-  const heroImage = getSetting("hero_image", "/images/about-restaurant.png");
-  const heroVideo = getSetting("hero_video", "");
   const aboutImage = getSetting("about_image", "");
   const aboutImgSrc = aboutImage || "/images/about-restaurant.png";
   const aboutContent =
@@ -60,8 +58,6 @@ export default function HomePage() {
         restaurantName={restaurantName}
         tagline={tagline}
         description={description}
-        heroImage={heroImage}
-        heroVideo={heroVideo}
         openingHours={openingHours}
         orderNote={orderNote}
       />
