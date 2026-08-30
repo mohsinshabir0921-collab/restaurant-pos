@@ -6,6 +6,7 @@ const {
   verifyCashfreePayment,
   createAdditionalCashfreeOrder,
   verifyAdditionalCashfreePayment,
+  createAdditionalPaymentLink,
 } = require("../controllers/paymentController");
 
 const { handleCashfreeWebhook } = require("../controllers/webhookController");
@@ -26,6 +27,14 @@ router.post(
   protect,
   authorizeRoles("admin", "cashier"),
   verifyAdditionalCashfreePayment
+);
+// Authenticated staff endpoint: generate/rotate a shareable additional-payment
+// link (/pay/:token) for an order with an outstanding additional amount.
+router.post(
+  "/additional-link",
+  protect,
+  authorizeRoles("admin", "cashier"),
+  createAdditionalPaymentLink
 );
 router.post("/webhook", handleCashfreeWebhook);
 

@@ -10,7 +10,14 @@ const User = require("../models/User");
 const { createOrder, calculateTax, calculateServiceCharge, applyCoupon } = require("../controllers/orderController");
 const { validateCoupon } = require("../controllers/couponController");
 const { getPublicActive } = require("../controllers/bannerController");
-const { createCashfreeOrder, verifyCashfreePayment } = require("../controllers/paymentController");
+const {
+  createCashfreeOrder,
+  verifyCashfreePayment,
+  createAdditionalCashfreeOrder,
+  verifyAdditionalCashfreePayment,
+  resolveOrderByAdditionalPaymentToken,
+  getAdditionalPaymentLinkInfo,
+} = require("../controllers/paymentController");
 const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
 const { calculateDeliveryFee, getBaseDeliveryFee, getMaxDeliveryKm, MIN_DELIVERY_ORDER_VALUE } = require("../utils/delivery");
 const { isRestaurantOpenNow } = require("../utils/openingHours");
@@ -60,6 +67,10 @@ const getWebsiteUser = async () => {
 const attachWebsiteUser = async (req, res, next) => {
   try {
     req.user = await getWebsiteUser();
+    // Marks a request as coming from the public (unauthenticated customer)
+    // website flow, so shared controllers can apply customer-facing security
+    // checks (e.g. phone ownership) without breaking the POS staff flow.
+    req.publicRequest = true;
     next();
   } catch (error) {
     return handleError(res, error);
@@ -394,5 +405,69 @@ router.get("/coupons/validate", (req, res, next) => {
 });
 router.post("/payment/create-order", attachWebsiteUser, createCashfreeOrder);
 router.post("/payment/verify", attachWebsiteUser, verifyCashfreePayment);
+// Public additional-payment entry points. The customer reaches these either
+// through a shareable payment link (/pay/:token, resolved server-side by the
+// token) or through the legacy track page (order number + phone). In both cases
+// the shared createAdditionalCashfreeOrder / verifyAdditionalCashfreePayment
+// controllers are reused unchanged; the public ownership guard in
+// paymentController accepts the token OR the phone match before any session is
+// created or verified. The amount is always server-derived
+// (order.additionalAmountDue), never taken from the client.
+//
+// GET /payment/link/:token returns only the order number + outstanding amount
+// (no phone, customer data, or internal ids) so the customer page can render.
+router.get(
+  "/payment/link/:token",
+  attachWebsiteUser,
+  (req, res) => getAdditionalPaymentLinkInfo(req, res)
+);
+router.post(
+  "/payment/create-additional-order",
+  attachWebsiteUser,
+  async (req, res) => {
+    try {
+      const token = String(req.body.token || "").trim();
+      if (token) {
+        const order = await resolveOrderByAdditionalPaymentToken(token);
+        if (!order) {
+          return res.status(404).json({ success: false, message: "Invalid or expired payment link" });
+        }
+        req.body.orderId = String(order._id);
+        req.body.token = token;
+      } else {
+        const order = await Order.findOne({
+          orderNumber: String(req.body.orderNumber || req.body.orderId || "").trim(),
+        });
+        if (!order) {
+          return res.status(404).json({ success: false, message: "Order not found" });
+        }
+        req.body.orderId = String(order._id);
+      }
+      return createAdditionalCashfreeOrder(req, res);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  }
+);
+router.post(
+  "/payment/verify-additional",
+  attachWebsiteUser,
+  async (req, res) => {
+    try {
+      const token = String(req.body.token || "").trim();
+      if (token) {
+        const order = await resolveOrderByAdditionalPaymentToken(token);
+        if (!order) {
+          return res.status(404).json({ success: false, message: "Invalid or expired payment link" });
+        }
+        req.body.orderId = String(order._id);
+        req.body.token = token;
+      }
+      return verifyAdditionalCashfreePayment(req, res);
+    } catch (error) {
+      return handleError(res, error);
+    }
+  }
+);
 
 module.exports = router;

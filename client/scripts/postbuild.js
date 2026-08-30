@@ -16,8 +16,8 @@ if (!existsSync(posHtml)) {
 }
 
 // Public website directory entry points at the root:
-//   /menu, /cart, /checkout, /track, /order-confirmation
-const websiteRoutes = ["", "menu", "cart", "checkout", "track", "order-confirmation"];
+//   /menu, /cart, /checkout, /track, /order-confirmation, /pay
+const websiteRoutes = ["", "menu", "cart", "checkout", "track", "order-confirmation", "pay"];
 
 for (const route of websiteRoutes) {
   if (!route) continue;

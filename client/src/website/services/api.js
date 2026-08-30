@@ -26,6 +26,15 @@ export const websiteAPI = {
   createOrder: (data) => websiteApi.post("/public/orders", data),
   createCashfreeOrder: (orderId) => websiteApi.post("/public/payment/create-order", { orderId }),
   verifyCashfreePayment: (data) => websiteApi.post("/public/payment/verify", data),
+  createAdditionalCashfreeOrder: (orderId, phone) =>
+    websiteApi.post("/public/payment/create-additional-order", { orderId, phone }),
+  verifyAdditionalCashfreePayment: (data) => websiteApi.post("/public/payment/verify-additional", data),
+  getAdditionalPaymentLink: (token) =>
+    websiteApi.get(`/public/payment/link/${encodeURIComponent(token)}`),
+  createAdditionalCashfreeOrderByToken: (token) =>
+    websiteApi.post("/public/payment/create-additional-order", { token }),
+  verifyAdditionalCashfreePaymentByToken: (data) =>
+    websiteApi.post("/public/payment/verify-additional", data),
   trackOrder: (orderNumber, phone) =>
     websiteApi.get(`/public/orders/${orderNumber}/track`, { params: { phone } }),
   getRecentOrders: (phone) => websiteApi.get("/public/orders/recent", { params: { phone } }),

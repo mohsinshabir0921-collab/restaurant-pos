@@ -10,6 +10,7 @@ import CartPage from "./pages/CartPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import OrderConfirmationPage from "./pages/OrderConfirmationPage";
 import TrackOrderPage from "./pages/TrackOrderPage";
+import AdditionalPaymentPage from "./pages/AdditionalPaymentPage";
 import NotFoundPage from "./pages/NotFoundPage";
 
 function WebsiteGate({ children }) {
@@ -58,6 +59,7 @@ export default function WebsiteApp() {
                 <Route path="/order-confirmation/:orderNumber" element={<OrderConfirmationPage />} />
                 <Route path="/track" element={<TrackOrderPage />} />
                 <Route path="/track/:orderNumber" element={<TrackOrderPage />} />
+                <Route path="/pay/:token" element={<AdditionalPaymentPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Route>
             </Routes>

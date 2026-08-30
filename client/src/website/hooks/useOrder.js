@@ -150,7 +150,159 @@ export const usePayment = () => {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { createCashfreeOrder, verifyCashfreePayment, openCashfree, processing, error, clearError };
+  // Opens the Cashfree hosted checkout for the ADDITIONAL amount due after a
+  // staff edit. Mirrors openCashfree but charges ONLY the server-derived
+  // additionalAmountDue via the dedicated additional Cashfree order and always
+  // reconciles with verifyAdditionalCashfreePayment - never the normal
+  // full-order verify. The modal's client-side status is not authoritative.
+  const openAdditionalCashfree = useCallback(
+    async ({
+      orderId,
+      phone,
+      paymentSessionId,
+      environment,
+      cashfreeOrderId,
+      onSuccess,
+      onFailure,
+      onPending,
+    }) => {
+      if (openedRef.current) return;
+      openedRef.current = true;
+      try {
+        const Cashfree = await loadCashfreeScript();
+        const cashfree = new Cashfree({
+          mode: environment === "production" ? "production" : "sandbox",
+        });
+
+        try {
+          await cashfree.checkout({
+            paymentSessionId,
+            orderId: cashfreeOrderId,
+            redirectTarget: "_modal",
+          });
+        } catch (checkoutErr) {
+          console.log("CASHFREE ADDITIONAL CHECKOUT ERROR:", checkoutErr?.message || checkoutErr);
+        }
+
+        try {
+          const verifyRes = await websiteAPI.verifyAdditionalCashfreePayment({
+            orderId,
+            cashfreeOrderId,
+            phone,
+          });
+          const outcome = decidePaymentOutcome(verifyRes);
+          if (outcome === OUTCOME.PAID) {
+            onSuccess?.(verifyRes.data.order);
+          } else if (outcome === OUTCOME.FAILED) {
+            onFailure?.(verifyRes.data?.message || "Additional payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the additional payment right now. Your order will update automatically when it is verified."
+            );
+          }
+        } catch (verifyErr) {
+          console.log("VERIFY ADDITIONAL PAYMENT ERROR:", verifyErr);
+          const status = verifyErr.response?.status;
+          const message = verifyErr.response?.data?.message || "";
+          // Actionable rejection by the server (phone mismatch, no amount due,
+          // order mismatch, etc.) - surface it. Ambiguous/transport errors are
+          // left pending so the webhook/browser verify can settle later.
+          if (status >= 400 && status < 500) {
+            onFailure?.(message || "Additional payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the additional payment right now. Your order will update automatically when it is verified."
+            );
+          }
+        }
+      } catch (err) {
+        onFailure?.(err?.message || "Additional payment could not be completed");
+      } finally {
+        openedRef.current = false;
+      }
+    },
+    []
+  );
+
+  // Opens the Cashfree hosted checkout for the ADDITIONAL amount due using a
+  // shareable payment link's token. The server resolves the token to the order
+  // and derives the amount from order.additionalAmountDue - the client never
+  // sends an amount, order id or phone. Verified through the same authoritative
+  // verifyAdditionalCashfreePayment mechanism as the phone-based flow.
+  const openAdditionalCashfreeByToken = useCallback(
+    async ({
+      token,
+      paymentSessionId,
+      environment,
+      cashfreeOrderId,
+      onSuccess,
+      onFailure,
+      onPending,
+    }) => {
+      if (openedRef.current) return;
+      openedRef.current = true;
+      try {
+        const Cashfree = await loadCashfreeScript();
+        const cashfree = new Cashfree({
+          mode: environment === "production" ? "production" : "sandbox",
+        });
+
+        try {
+          await cashfree.checkout({
+            paymentSessionId,
+            orderId: cashfreeOrderId,
+            redirectTarget: "_modal",
+          });
+        } catch (checkoutErr) {
+          console.log("CASHFREE ADDITIONAL (TOKEN) CHECKOUT ERROR:", checkoutErr?.message || checkoutErr);
+        }
+
+        try {
+          const verifyRes = await websiteAPI.verifyAdditionalCashfreePaymentByToken({
+            token,
+            cashfreeOrderId,
+          });
+          const outcome = decidePaymentOutcome(verifyRes);
+          if (outcome === OUTCOME.PAID) {
+            onSuccess?.(verifyRes.data.order);
+          } else if (outcome === OUTCOME.FAILED) {
+            onFailure?.(verifyRes.data?.message || "Additional payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the additional payment right now. Your order will update automatically when it is verified."
+            );
+          }
+        } catch (verifyErr) {
+          console.log("VERIFY ADDITIONAL (TOKEN) PAYMENT ERROR:", verifyErr);
+          const status = verifyErr.response?.status;
+          const message = verifyErr.response?.data?.message || "";
+          if (status >= 400 && status < 500) {
+            onFailure?.(message || "Additional payment could not be completed");
+          } else {
+            onPending?.(
+              "We could not confirm the additional payment right now. Your order will update automatically when it is verified."
+            );
+          }
+        }
+      } catch (err) {
+        onFailure?.(err?.message || "Additional payment could not be completed");
+      } finally {
+        openedRef.current = false;
+      }
+    },
+    []
+  );
+
+  return {
+    createCashfreeOrder,
+    verifyCashfreePayment,
+    openCashfree,
+    openAdditionalCashfree,
+    openAdditionalCashfreeByToken,
+    processing,
+    error,
+    clearError,
+  };
 };
 
 // Orchestrates the full order + online payment flow.

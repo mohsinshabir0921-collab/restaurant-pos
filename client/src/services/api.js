@@ -244,6 +244,7 @@ export const paymentAPI = {
   verifyCashfreePayment: (data) => api.post("/payment/verify", data),
   createAdditionalCashfreeOrder: (orderId) => api.post("/payment/create-additional-order", { orderId }),
   verifyAdditionalCashfreePayment: (data) => api.post("/payment/verify-additional", data),
+  generateAdditionalPaymentLink: (orderId) => api.post("/payment/additional-link", { orderId }),
 };
 
 export const inventoryAPI = {

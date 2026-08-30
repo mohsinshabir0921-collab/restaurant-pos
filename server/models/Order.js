@@ -341,6 +341,21 @@ const orderSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Unpredictable, URL-safe token used to build a shareable additional-payment
+    // link (/pay/:token). It ONLY resolves the order server-side - it never
+    // encodes the amount, order id, phone or any sensitive field. The payable
+    // amount is always derived from order.additionalAmountDue at request time.
+    additionalPaymentToken: {
+      type: String,
+      trim: true,
+      sparse: true,
+      index: true,
+      default: null,
+    },
+    additionalPaymentTokenExpiresAt: {
+      type: Date,
+      default: null,
+    },
     invoiceNumber: {
       type: String,
       unique: true,

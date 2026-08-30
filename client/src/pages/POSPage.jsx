@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { menuAPI, orderAPI, tableAPI, customerAPI, settingsAPI, paymentAPI, couponAPI, loyaltyAPI, categoryAPI, authAPI } from "../services/api";
 import {
@@ -65,6 +65,7 @@ const WAITER_ROLES = ["waiter"];
 
 const SEEN_ORDERS_KEY = "pos_seen_orders_v1";
 const SOUND_ENABLED_KEY = "pos_sound_enabled_v2";
+const POS_ALERT_DEDUP_MS = 5000;
 
 const toLocalDateInput = (d = new Date()) => {
   const y = d.getFullYear();
@@ -350,6 +351,11 @@ export default function POSPage() {
   const [ordersError, setOrdersError] = useState("");
   const [ordersUpdatedAt, setOrdersUpdatedAt] = useState(null);
   const orderFiltersRef = useRef({ type: "all", date: "all" });
+  const [orderSearchResults, setOrderSearchResults] = useState([]);
+  const [orderSearchOpen, setOrderSearchOpen] = useState(false);
+  const [orderSearchLoading, setOrderSearchLoading] = useState(false);
+  const [orderSearchActive, setOrderSearchActive] = useState(-1);
+  const [orderPinned, setOrderPinned] = useState([]);
   const [kitchenOrders, setKitchenOrders] = useState([]);
   const [kitchenFilter, setKitchenFilter] = useState("active");
   const [lastOrder, setLastOrder] = useState(null);
@@ -357,18 +363,20 @@ export default function POSPage() {
   const [soundEnabled, setSoundEnabled] = useState(() => {
     try {
       localStorage.removeItem("pos_sound_enabled");
-      return localStorage.getItem(SOUND_ENABLED_KEY) === "true";
+      return localStorage.getItem(SOUND_ENABLED_KEY) === "true" || localStorage.getItem(SOUND_ENABLED_KEY) === null;
     } catch {
-      return false;
+      return true;
     }
   });
   const soundEnabledRef = useRef(soundEnabled);
   const [orderAlerts, setOrderAlerts] = useState([]);
   const audioCtxRef = useRef(null);
+  const notificationAudioRef = useRef(null);
   const cashfreeLoadedRef = useRef(false);
   const orderAlertTimersRef = useRef({});
   const seenOrderIdsRef = useRef(null);
   const newOrderBaselineRef = useRef(false);
+  const lastAlertSoundAtRef = useRef(0);
 
   const ensureSeenOrdersLoaded = () => {
     if (seenOrderIdsRef.current === null) {
@@ -389,6 +397,10 @@ export default function POSPage() {
   const [collectOrder, setCollectOrder] = useState(null);
   const [collectMode, setCollectMode] = useState(null);
   const [collectBusy, setCollectBusy] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [paymentLink, setPaymentLink] = useState(null);
+  const [linkError, setLinkError] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -453,6 +465,11 @@ export default function POSPage() {
       localStorage.setItem(SOUND_ENABLED_KEY, String(soundEnabled));
     } catch { /* storage unavailable - ignore */ }
   }, [soundEnabled]);
+
+  useEffect(() => {
+    notificationAudioRef.current = new Audio("/new-order-alert.mp3");
+    notificationAudioRef.current.preload = "auto";
+  }, []);
 
   useEffect(() => {
     const timers = orderAlertTimersRef.current;
@@ -588,17 +605,41 @@ export default function POSPage() {
 
   const playNotificationSound = () => {
     if (!soundEnabledRef.current) return;
-    playBeep([880, 1100, 880]);
+    if (!notificationAudioRef.current) return;
+
+    // Debounce duplicate plays: a push message and the polling fallback can
+    // both detect the same new order within seconds of each other.
+    const now = Date.now();
+    if (now - lastAlertSoundAtRef.current < POS_ALERT_DEDUP_MS) return;
+    lastAlertSoundAtRef.current = now;
+
+    // Prevent overlapping audio
+    notificationAudioRef.current.pause();
+    notificationAudioRef.current.currentTime = 0;
+    
+    notificationAudioRef.current.play().catch(() => {
+      // Autoplay might be blocked, try resume on next user interaction
+    });
   };
 
   const handleSoundToggle = (checked) => {
     setSoundEnabled(checked);
-    if (checked) {
-      const ctx = getAudioContext();
-      if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
-      playBeep([880, 880]);
+    if (checked && notificationAudioRef.current) {
+      notificationAudioRef.current.currentTime = 0;
+      notificationAudioRef.current.play().catch(() => {});
     }
   };
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handleSWMessage = (event) => {
+      if (event?.data?.type === "POS_NEW_ORDER") {
+        playNotificationSound();
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleSWMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", handleSWMessage);
+  }, []);
 
   const persistSeenOrders = () => {
     try {
@@ -855,6 +896,36 @@ export default function POSPage() {
     return () => clearInterval(interval);
   }, [isKitchen]);
 
+  // Debounced server-side Orders search. The in-memory orders list only holds
+  // the newest 50, so typing 3+ chars queries the backend search directly so
+  // older orders (e.g. by order number) can still be located and opened.
+  useEffect(() => {
+    const q = orderSearch.trim();
+    if (q.length < 3) {
+      setOrderSearchResults([]);
+      setOrderSearchOpen(false);
+      setOrderSearchLoading(false);
+      setOrderSearchActive(-1);
+      return;
+    }
+    setOrderSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await orderAPI.getAll({ search: q, limit: 8 });
+        const list = res?.data?.orders || [];
+        setOrderSearchResults(list);
+        setOrderSearchOpen(true);
+        setOrderSearchActive(-1);
+      } catch {
+        setOrderSearchResults([]);
+        setOrderSearchOpen(false);
+      } finally {
+        setOrderSearchLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [orderSearch]);
+
   const filteredMenuItems = useMemo(() => {
     const byCategory =
       selectedCategory === "All"
@@ -865,10 +936,43 @@ export default function POSPage() {
     return byCategory.filter(item => item.name?.toLowerCase().includes(q));
   }, [menuItems, selectedCategory, searchQuery]);
 
+  const openOrderSearchResult = (order) => {
+    setOrderPinned((prev) =>
+      prev.some((o) => o._id === order._id) ? prev : [...prev, order]
+    );
+    setExpandedOrderId(order._id);
+    setHighlightedOrderId(order._id);
+    setOrderSearchOpen(false);
+    setOrderSearchActive(-1);
+  };
+
+  const handleOrderSearchKeyDown = (e) => {
+    if (!orderSearchOpen || orderSearchResults.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOrderSearchActive((i) => (i + 1) % orderSearchResults.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOrderSearchActive((i) => (i - 1 + orderSearchResults.length) % orderSearchResults.length);
+    } else if (e.key === "Enter") {
+      const active =
+        orderSearchActive >= 0 ? orderSearchResults[orderSearchActive] : orderSearchResults[0];
+      if (active) {
+        e.preventDefault();
+        openOrderSearchResult(active);
+      }
+    } else if (e.key === "Escape") {
+      setOrderSearchOpen(false);
+      setOrderSearchActive(-1);
+    }
+  };
+
   const filteredOrders = useMemo(() => {
+    const pinned = orderPinned.filter((po) => !orders.some((o) => o._id === po._id));
+    const combined = [...pinned, ...orders];
     const statuses = STATUS_GROUPS[orderStatusFilter] || null;
     const q = orderSearch.trim().toLowerCase();
-    return orders.filter(o => {
+    return combined.filter(o => {
       if (statuses && !statuses.includes(o.orderStatus)) return false;
       if (!q) return true;
       return (
@@ -880,7 +984,7 @@ export default function POSPage() {
         o.orderStatus?.toLowerCase().includes(q)
       );
     });
-  }, [orders, orderSearch, orderStatusFilter]);
+  }, [orders, orderSearch, orderStatusFilter, orderPinned]);
 
   const categoryList = useMemo(() => {
     // Build the selector from ALL active categories (so newly created / empty
@@ -1240,6 +1344,37 @@ export default function POSPage() {
     setCollectOrder(order);
   };
 
+  const handleGeneratePaymentLink = async (order) => {
+    setLinkBusy(true);
+    setLinkError("");
+    setPaymentLink(null);
+    setLinkCopied(false);
+    try {
+      const res = await paymentAPI.generateAdditionalPaymentLink(order._id);
+      if (res.data.success) {
+        applyOrderUpdate(res.data.order);
+        setPaymentLink(res.data.url);
+      } else {
+        setLinkError(res.data.message || "Could not generate the payment link");
+      }
+    } catch (err) {
+      setLinkError(err.response?.data?.message || "Could not generate the payment link");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const handleCopyPaymentLink = async () => {
+    if (!paymentLink) return;
+    try {
+      await navigator.clipboard.writeText(paymentLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setLinkCopied(false);
+    }
+  };
+
   const doCollectAdditionalCash = async (order) => {
     setCollectBusy(true);
     setError("");
@@ -1473,9 +1608,14 @@ export default function POSPage() {
     }
     if (isAdminOrCashier && Number(order.additionalAmountDue) > 0) {
       actions.push(
-        <button key="collect-additional" className="btn btn-sm btn-info" onClick={() => handleCollectAdditional(order)}>
-          Collect {formatCurrency(order.additionalAmountDue)}
-        </button>
+        <>
+          <button key="collect-additional" className="btn btn-sm btn-info" onClick={() => handleCollectAdditional(order)}>
+            Collect {formatCurrency(order.additionalAmountDue)}
+          </button>
+          <button key="payment-link" className="btn btn-sm btn-secondary" onClick={() => { handleCollectAdditional(order); handleGeneratePaymentLink(order); }}>
+            Generate Payment Link
+          </button>
+        </>
       );
     }
     if (!["paid", "completed", "cancelled", "refunded"].includes(order.orderStatus)) {
@@ -2105,12 +2245,43 @@ export default function POSPage() {
               <h3>Orders</h3>
               <span className="orders-count">{filteredOrders.length} shown</span>
             </div>
-            <SearchBox
-              value={orderSearch}
-              onChange={setOrderSearch}
-              placeholder="Search orders…"
-              ariaLabel="Search orders"
-            />
+            <div className="dropdown">
+              <SearchBox
+                value={orderSearch}
+                onChange={setOrderSearch}
+                placeholder="Search orders…"
+                ariaLabel="Search orders"
+                onKeyDown={handleOrderSearchKeyDown}
+                onBlur={() => setTimeout(() => setOrderSearchOpen(false), 120)}
+              />
+              {orderSearchOpen && (
+                <div className="header-search-dropdown">
+                  {orderSearchLoading ? (
+                    <div className="header-search-status">Searching…</div>
+                  ) : orderSearchResults.length === 0 ? (
+                    <div className="header-search-status">No matching orders.</div>
+                  ) : (
+                    <div className="header-search-results">
+                      {orderSearchResults.map((order, index) => (
+                        <button
+                          key={order._id}
+                          type="button"
+                          className={`dropdown-item${orderSearchActive === index ? " dropdown-item-active" : ""}`}
+                          onMouseEnter={() => setOrderSearchActive(index)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => openOrderSearchResult(order)}
+                        >
+                          <span className="order-card-number">{order.orderNumber}</span>
+                          <span className="order-card-name">{order.customerName || "—"}</span>
+                          <span className="order-card-amount">{formatCurrency(order.total)}</span>
+                          <span className={`status-badge ${order.orderStatus}`}>{order.orderStatus}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="orders-filters">
@@ -2353,7 +2524,7 @@ export default function POSPage() {
               <div className="empty-state-icon">📈</div>
               <h3 className="empty-state-title">Quick Reports</h3>
               <p className="empty-state-description">Detailed sales, payment and order reports are available on the Reports page.</p>
-              <a href="/reports" className="btn btn-primary">Open Reports</a>
+              <Link to="/reports" className="btn btn-primary">Open Reports</Link>
             </div>
           </div>
         </div>
@@ -2434,6 +2605,32 @@ export default function POSPage() {
                 >
                   UPI / Card
                 </button>
+              </div>
+              <div className="collect-link-block">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => handleGeneratePaymentLink(collectOrder)}
+                  disabled={linkBusy || collectBusy}
+                >
+                  {linkBusy ? "Generating…" : "Generate Payment Link"}
+                </button>
+                <p className="form-hint">
+                  Shareable link for the customer to pay the outstanding {formatCurrency(collectOrder.additionalAmountDue)} online. Valid for 72 hours.
+                </p>
+                {linkError && <p className="form-error">{linkError}</p>}
+                {paymentLink && (
+                  <div className="collect-link-result">
+                    <code className="collect-link-url">{paymentLink}</code>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={handleCopyPaymentLink}
+                    >
+                      {linkCopied ? "Copied" : "Copy Link"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             <div className="modal-footer">

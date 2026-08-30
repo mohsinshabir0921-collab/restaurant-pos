@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 const Order = require("../models/Order");
 const Payment = require("../models/Payment");
 const InventoryItem = require("../models/InventoryItem");
@@ -5,6 +7,9 @@ const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
 const cashfree = require("../services/cashfree");
 const { handleError } = require("../utils/httpError");
+
+// Shareable additional-payment links expire after 72 hours.
+const ADDITIONAL_PAYMENT_TOKEN_TTL_MS = 72 * 60 * 60 * 1000;
 
 // Aggregate required inventory across all order items and report shortages.
 // Resolves recipes the same way deduction does, so nothing is partially
@@ -481,6 +486,149 @@ const getPaidAmountForOrder = async (order) => {
 
 const cashfreeAdditionalOrderId = (order) => `pos_${order._id}_adj`;
 
+// Generates an unpredictable, URL-safe token used solely to resolve an order
+// server-side when a customer opens a shareable additional-payment link. It
+// never encodes the amount, order id, phone or any sensitive data.
+const generateAdditionalPaymentToken = () => crypto.randomBytes(32).toString("base64url");
+
+// Resolves a stored, unexpired additional-payment token to its order. Returns
+// null when the token is missing/invalid/expired or the order can no longer
+// accept an additional payment (cancelled/refunded). No business amount is
+// derived here - callers always read order.additionalAmountDue separately.
+const resolveOrderByAdditionalPaymentToken = async (token) => {
+  if (!token || typeof token !== "string") return null;
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const order = await Order.findOne({ additionalPaymentToken: trimmed });
+  if (!order) return null;
+  if (["cancelled", "refunded"].includes(order.orderStatus)) return null;
+  const expiresAt = order.additionalPaymentTokenExpiresAt;
+  if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return null;
+  return order;
+};
+
+// Public additional-payment requests must be initiated by the legitimate
+// customer. Two equally valid proofs are accepted (both additive, backward
+// compatible):
+//   - the shareable additional-payment token (additionalPaymentToken) which
+//     resolves the order server-side and is the preferred, phone-free channel, or
+//   - the phone matching the order's recorded customer phone (legacy track-page
+//     flow).
+// Scoped to the public (website) flow so the authenticated POS staff flow keeps
+// working. The amount is never read from here - it always comes from
+// order.additionalAmountDue on the server.
+const assertPublicAdditionalPaymentOwnership = (req, res, order) => {
+  if (!req.publicRequest) return true; // POS staff flow is authenticated
+  const token = String(req.body.token || "").trim();
+  const phone = String(req.body.phone || "").trim();
+  const tokenOk = !!(
+    token &&
+    order.additionalPaymentToken === token &&
+    order.additionalPaymentTokenExpiresAt &&
+    new Date(order.additionalPaymentTokenExpiresAt).getTime() >= Date.now()
+  );
+  const orderPhone = String(order.customerPhone || "").trim();
+  const phoneOk = !!phone && !!orderPhone && phone === orderPhone;
+  if (!tokenOk && !phoneOk) {
+    res.status(403).json({
+      success: false,
+      message: "Unable to verify this payment link or phone number",
+    });
+    return false;
+  }
+  return true;
+};
+
+// Staff-facing: generate (or rotate) a shareable additional-payment link for an
+// order. The amount is ALWAYS recomputed from order.additionalAmountDue and this
+// endpoint refuses to create a link when nothing is due. Returns a token-scoped
+// public URL the customer can open on the website. Rotating the token invalidates
+// any previously shared link for the same order.
+const createAdditionalPaymentLink = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "orderId is required" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    if (["cancelled", "refunded"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot collect additional payment for a cancelled or refunded order",
+      });
+    }
+
+    const additional = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
+    if (additional <= 0) {
+      return res.status(400).json({ success: false, message: "No additional payment is due" });
+    }
+
+    const token = generateAdditionalPaymentToken();
+    const expiresAt = new Date(Date.now() + ADDITIONAL_PAYMENT_TOKEN_TTL_MS);
+    await Order.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          additionalPaymentToken: token,
+          additionalPaymentTokenExpiresAt: expiresAt,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    const configuredOrigin = String(
+      process.env.WEBSITE_URL || process.env.CLIENT_URL || ""
+    )
+      .split(",")[0]
+      .trim()
+      .replace(/\/+$/, "");
+    const origin = configuredOrigin || `${req.protocol}://${req.get("host")}`;
+    const url = `${origin}/pay/${token}`;
+
+    return res.status(200).json({
+      success: true,
+      message: "Additional payment link generated",
+      url,
+      token,
+      amount: additional,
+      orderNumber: order.orderNumber,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("GENERATE ADDITIONAL PAYMENT LINK ERROR:", error?.message || error);
+    return handleError(res, error);
+  }
+};
+
+// Public: resolves a payment-link token and returns ONLY the minimal info the
+// customer-facing page needs (order number + outstanding amount). Exposes no
+// phone, customer details, internal ids or anything beyond the payable amount.
+const getAdditionalPaymentLinkInfo = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const order = await resolveOrderByAdditionalPaymentToken(token);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Invalid or expired payment link" });
+    }
+    const additional = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
+    if (additional <= 0) {
+      return res.status(400).json({ success: false, message: "No additional payment is due for this order" });
+    }
+    return res.status(200).json({
+      success: true,
+      orderNumber: order.orderNumber,
+      amount: additional,
+    });
+  } catch (error) {
+    console.error("GET ADDITIONAL PAYMENT LINK INFO ERROR:", error?.message || error);
+    return handleError(res, error);
+  }
+};
+
 const createAdditionalCashfreeOrder = async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -499,6 +647,10 @@ const createAdditionalCashfreeOrder = async (req, res) => {
         success: false,
         message: "Cannot collect additional payment for a cancelled or refunded order",
       });
+    }
+
+    if (!assertPublicAdditionalPaymentOwnership(req, res, order)) {
+      return;
     }
 
     const additional = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
@@ -570,6 +722,96 @@ const createAdditionalCashfreeOrder = async (req, res) => {
   }
 };
 
+// Shared atomic settlement for an additional-payment delta. Used by BOTH the
+// browser verify path AND the Cashfree webhook recovery path so that, no matter
+// which arrives first (or concurrently), the delta is settled exactly once.
+//
+// The single source of truth is the server-side order state: the amount is
+// recomputed from order.additionalAmountDue (never trusted from the caller) and
+// the atomic additionalPaymentInProgress claim ensures only one concurrent
+// settlement can create a ledger row. Returns:
+//   { status: "settled",           order: <populated doc> }   -> this caller settled it
+//   { status: "already-collected", order: <latest doc> }      -> someone else settled first
+//   { status: "in-progress",       order: undefined }         -> another settle is mid-flight
+const settleAdditionalPayment = async (order, payment, cashfreeOrderId) => {
+  const additional = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
+
+  // Atomic claim so concurrent settles cannot create duplicate ledger rows or
+  // double-charge the delta.
+  const claimed = await Order.findOneAndUpdate(
+    {
+      _id: order._id,
+      additionalAmountDue: { $gt: 0 },
+      additionalPaymentInProgress: { $ne: true },
+    },
+    { $set: { additionalPaymentInProgress: true, updatedAt: new Date() } },
+    { new: true }
+  );
+
+  if (!claimed) {
+    const latest = await Order.findById(order._id);
+    if (Number(latest?.additionalAmountDue || 0) <= 0) {
+      return { status: "already-collected", order: latest };
+    }
+    return { status: "in-progress" };
+  }
+
+  try {
+    await Payment.create({
+      order: claimed._id,
+      customer: claimed.customer || null,
+      amount: additional,
+      method: "upi",
+      gateway: "cashfree",
+      status: "paid",
+      transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined,
+      collectedBy: claimed.createdBy,
+      collectedAt: new Date(),
+      notes: "Additional payment for edited order",
+      metadata: { additionalPayment: true, reason: "order_edit" },
+      gatewayData: {
+        gatewayOrderId: cashfreeOrderId,
+        gatewayPaymentId: String(payment.cf_payment_id),
+        gatewayResponse: payment,
+      },
+    });
+
+    const newPaidAmount = (await getPaidAmountForOrder(claimed)) + additional;
+    const fullyPaid = newPaidAmount >= (Number(claimed.total) || 0);
+
+    await Order.updateOne(
+      { _id: claimed._id },
+      {
+        $set: {
+          paymentStatus: fullyPaid ? "paid" : "partial",
+          additionalAmountDue: fullyPaid
+            ? 0
+            : Math.round((Number(claimed.total) - newPaidAmount) * 100) / 100,
+          additionalPaymentInProgress: false,
+          cashfreeAdditionalPaymentId: String(payment.cf_payment_id),
+          paidAt: fullyPaid ? new Date() : claimed.paidAt,
+          updatedAt: new Date(),
+        },
+      }
+    );
+  } catch (paymentError) {
+    console.error("ADDITIONAL PAYMENT SETTLEMENT LEDGER ERROR:", paymentError);
+    await Order.updateOne(
+      { _id: claimed._id, additionalPaymentInProgress: true },
+      { $set: { additionalPaymentInProgress: false, updatedAt: new Date() } }
+    ).catch(() => {});
+    throw paymentError;
+  }
+
+  const populatedOrder = await Order.findById(claimed._id)
+    .populate("customer", "name phone")
+    .populate("table", "number zone")
+    .populate("updatedBy", "name")
+    .lean();
+
+  return { status: "settled", order: populatedOrder };
+};
+
 const verifyAdditionalCashfreePayment = async (req, res) => {
   try {
     const { orderId, cashfreeOrderId, cfPaymentId } = req.body;
@@ -591,6 +833,10 @@ const verifyAdditionalCashfreePayment = async (req, res) => {
         success: false,
         message: "Cannot verify payment for a cancelled or refunded order",
       });
+    }
+
+    if (!assertPublicAdditionalPaymentOwnership(req, res, order)) {
+      return;
     }
 
     if (!order.cashfreeAdditionalOrderId) {
@@ -661,89 +907,25 @@ const verifyAdditionalCashfreePayment = async (req, res) => {
       });
     }
 
-    // Atomic claim so concurrent verifies cannot settle the delta twice.
-    const claimed = await Order.findOneAndUpdate(
-      {
-        _id: order._id,
-        additionalAmountDue: { $gt: 0 },
-        additionalPaymentInProgress: { $ne: true },
-      },
-      { $set: { additionalPaymentInProgress: true, updatedAt: new Date() } },
-      { new: true }
-    );
+    const settlement = await settleAdditionalPayment(order, payment, cashfreeOrderId);
 
-    if (!claimed) {
-      const latest = await Order.findById(order._id);
-      if (Number(latest?.additionalAmountDue || 0) <= 0) {
-        return res.status(200).json({
-          success: true,
-          message: "Additional payment already collected",
-          order: latest,
-        });
-      }
+    if (settlement.status === "already-collected") {
+      return res.status(200).json({
+        success: true,
+        message: "Additional payment already collected",
+        order: settlement.order,
+      });
+    }
+    if (settlement.status === "in-progress") {
       return res.status(409).json({
         success: false,
         message: "Another additional payment verification is already in progress",
       });
     }
-
-    try {
-      await Payment.create({
-        order: claimed._id,
-        customer: claimed.customer || null,
-        amount: additional,
-        method: "upi",
-        gateway: "cashfree",
-        status: "paid",
-        transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined,
-        collectedBy: claimed.createdBy,
-        collectedAt: new Date(),
-        notes: "Additional payment for edited order",
-        metadata: { additionalPayment: true, reason: "order_edit" },
-        gatewayData: {
-          gatewayOrderId: cashfreeOrderId,
-          gatewayPaymentId: String(payment.cf_payment_id),
-          gatewayResponse: payment,
-        },
-      });
-
-      const newPaidAmount = (await getPaidAmountForOrder(claimed)) + additional;
-      const fullyPaid = newPaidAmount >= (Number(claimed.total) || 0);
-
-      await Order.updateOne(
-        { _id: claimed._id },
-        {
-          $set: {
-            paymentStatus: fullyPaid ? "paid" : "partial",
-            additionalAmountDue: fullyPaid
-              ? 0
-              : Math.round((Number(claimed.total) - newPaidAmount) * 100) / 100,
-            additionalPaymentInProgress: false,
-            cashfreeAdditionalPaymentId: String(payment.cf_payment_id),
-            paidAt: fullyPaid ? new Date() : claimed.paidAt,
-            updatedAt: new Date(),
-          },
-        }
-      );
-    } catch (paymentError) {
-      console.error("ADDITIONAL PAYMENT VERIFY LEDGER ERROR:", paymentError);
-      await Order.updateOne(
-        { _id: claimed._id, additionalPaymentInProgress: true },
-        { $set: { additionalPaymentInProgress: false, updatedAt: new Date() } }
-      ).catch(() => {});
-      throw paymentError;
-    }
-
-    const populatedOrder = await Order.findById(claimed._id)
-      .populate("customer", "name phone")
-      .populate("table", "number zone")
-      .populate("updatedBy", "name")
-      .lean();
-
     return res.status(200).json({
       success: true,
       message: "Additional payment verified successfully",
-      order: populatedOrder,
+      order: settlement.order,
     });
   } catch (error) {
     console.error("VERIFY ADDITIONAL PAYMENT ERROR:", error.message);
@@ -756,6 +938,11 @@ module.exports = {
   verifyCashfreePayment,
   createAdditionalCashfreeOrder,
   verifyAdditionalCashfreePayment,
+  settleAdditionalPayment,
   markPaymentFailed,
   deductInventoryForOrder,
+  generateAdditionalPaymentToken,
+  resolveOrderByAdditionalPaymentToken,
+  createAdditionalPaymentLink,
+  getAdditionalPaymentLinkInfo,
 };
