@@ -12,28 +12,55 @@ if (!publicKey || !privateKey) {
 
 webpush.setVapidDetails(subject, publicKey, privateKey);
 
+// Derive a short, stable, non-sensitive device identifier from a push
+// subscription. Never logs the full endpoint, keys, or push tokens.
+const maskEndpoint = (endpoint) => {
+  try {
+    const url = new URL(endpoint);
+    const host = url.host || "unknown";
+    const tail = (url.pathname || "").replace(/\/+$/, "").slice(-12);
+    return `${host}…${tail}`;
+  } catch {
+    return "unknown-endpoint";
+  }
+};
+
 class WebPushService {
   /**
-   * Send push notification to a specific subscription
+   * Send push notification to a specific subscription.
+   * Logs every delivery attempt with a masked device identifier, the outcome,
+   * and the HTTP/error code so Android-vs-desktop delivery failures are
+   * visible in the logs.
    */
   static async sendToSubscription(subscription, payload) {
+    const startedAt = new Date().toISOString();
+    const device = maskEndpoint(subscription.endpoint);
     try {
       await webpush.sendNotification(subscription, JSON.stringify(payload));
+      console.log(
+        `[push] ${startedAt} device=${device} status=success`
+      );
       return true;
     } catch (error) {
+      const code = error.statusCode ?? "ERR";
       // Handle expired/invalid subscriptions. 404 (not found), 410 (gone), and
       // 403 (expired/invalid keys for this subscription) are permanent and the
       // row is deactivated. Temporary failures (5xx, 429, network errors) are
       // logged but never deactivate a subscription.
-      if (error.statusCode === 403 || error.statusCode === 404 || error.statusCode === 410) {
-        console.log('Push subscription expired or invalid, removing:', subscription.endpoint);
+      const permanent = code === 403 || code === 404 || code === 410;
+      console.log(
+        `[push] ${startedAt} device=${device} status=${permanent ? "failed-permanent" : "failed-transient"} code=${code} msg=${(error.message || "").slice(0, 200)}`
+      );
+      if (permanent) {
         await PushSubscription.findOneAndUpdate(
           { endpoint: subscription.endpoint },
           { isActive: false }
         );
+        console.log(
+          `[push] ${startedAt} device=${device} action=deactivated-inactive code=${code}`
+        );
         return false;
       }
-      console.error('Push notification error:', error.message);
       return false;
     }
   }
@@ -60,7 +87,7 @@ class WebPushService {
         title: 'New Order',
         body: `${order.orderNumber} · ₹${order.total}`,
         data: {
-          url: '/orders',
+          url: '/pos/orders',
           orderId: order._id,
           orderNumber: order.orderNumber,
           orderType: order.orderType,
@@ -68,17 +95,21 @@ class WebPushService {
         }
       };
 
-      const promises = subscriptions.map(async (sub) => {
-        const subscriptionObj = {
-          endpoint: sub.endpoint,
-          keys: sub.keys
-        };
-        const result = await this.sendToSubscription(subscriptionObj, payload);
-        return result;
-      });
+      const results = await Promise.all(
+        subscriptions.map(async (sub) => {
+          const subscriptionObj = {
+            endpoint: sub.endpoint,
+            keys: sub.keys
+          };
+          return this.sendToSubscription(subscriptionObj, payload);
+        })
+      );
 
-      await Promise.allSettled(promises);
-      console.log(`New order push sent to ${subscriptions.length} POS devices`);
+      const delivered = results.filter(Boolean).length;
+      const failed = results.length - delivered;
+      console.log(
+        `[push] new-order: targeted=${results.length} delivered=${delivered} failed=${failed}`
+      );
     } catch (error) {
       console.error('Error sending new order push notifications:', error.message);
     }
