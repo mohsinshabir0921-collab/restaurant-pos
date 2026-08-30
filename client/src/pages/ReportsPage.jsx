@@ -111,7 +111,7 @@ export default function ReportsPage() {
 
   const renderReport = () => {
     const report = reports[activeReport];
-    if (!report) return <div className="loading">Loading...</div>;
+    if (!report) return null;
 
     switch (activeReport) {
       case "today":
@@ -452,11 +452,40 @@ export default function ReportsPage() {
         </aside>
 
         <main className="reports-content">
-          {loading && !reports[activeReport] ? (
-            <div className="loading"><span className="spinner spinner-lg"></span><span>Loading report...</span></div>
-          ) : (
-            renderReport()
-          )}
+          {(() => {
+            const needsDateRange = ["dateRange", "category", "item", "payment", "tax", "staff", "customer", "hourly"].includes(activeReport);
+            const hasReport = !!reports[activeReport];
+            const datesMissing = needsDateRange && !(dateRange.startDate && dateRange.endDate);
+
+            if (loading && !hasReport) {
+              return (
+                <div className="loading"><span className="spinner spinner-lg"></span><span>Loading report...</span></div>
+              );
+            }
+            if (!hasReport && error) {
+              return (
+                <div className="reports-state reports-error">
+                  <p>{error}</p>
+                  <button className="btn btn-secondary" onClick={() => fetchReport(activeReport)}>Retry</button>
+                </div>
+              );
+            }
+            if (!hasReport && datesMissing) {
+              return (
+                <div className="reports-state reports-empty">
+                  <p>Select a start and end date, then click <strong>Apply</strong> to load this report.</p>
+                </div>
+              );
+            }
+            if (!hasReport) {
+              return (
+                <div className="reports-state reports-empty">
+                  <p>No data to display for this report.</p>
+                </div>
+              );
+            }
+            return renderReport();
+          })()}
         </main>
       </div>
     </div>

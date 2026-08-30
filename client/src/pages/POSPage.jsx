@@ -354,6 +354,7 @@ export default function POSPage() {
   const [orderSearchResults, setOrderSearchResults] = useState([]);
   const [orderSearchOpen, setOrderSearchOpen] = useState(false);
   const [orderSearchLoading, setOrderSearchLoading] = useState(false);
+  const [orderSearchError, setOrderSearchError] = useState("");
   const [orderSearchActive, setOrderSearchActive] = useState(-1);
   const [orderPinned, setOrderPinned] = useState([]);
   const [kitchenOrders, setKitchenOrders] = useState([]);
@@ -878,15 +879,39 @@ export default function POSPage() {
   }, [printOrder]);
 
   useEffect(() => {
+    const navigateToOrder = location.state?.posTab === "orders" ? location.state?.orderId : null;
     if (location.state?.posTab === "orders") setActiveTab("orders");
-    setHighlightedOrderId(location.state?.orderId || null);
+    setHighlightedOrderId(navigateToOrder || null);
+    if (!navigateToOrder) return;
+    // The Orders tab only loads the newest 50 orders in memory. A global-search
+    // result may be an older order, so if it is not already present, fetch it
+    // by id and pin it into the visible list (same mechanism the in-page Orders
+    // search dropdown uses) so it can be highlighted and opened.
+    const alreadyPresent =
+      orders.some((o) => o._id === navigateToOrder) ||
+      orderPinned.some((o) => o._id === navigateToOrder);
+    if (alreadyPresent) {
+      setExpandedOrderId(navigateToOrder);
+      return;
+    }
+    orderAPI
+      .getById(navigateToOrder)
+      .then((res) => {
+        if (res.data.success && res.data.order) {
+          setOrderPinned((prev) =>
+            prev.some((o) => o._id === navigateToOrder) ? prev : [...prev, res.data.order]
+          );
+          setExpandedOrderId(navigateToOrder);
+        }
+      })
+      .catch(() => {});
   }, [location.state]);
 
   useEffect(() => {
     if (!highlightedOrderId) return;
     const el = document.getElementById(`order-row-${highlightedOrderId}`);
     if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [orders, highlightedOrderId]);
+  }, [orders, highlightedOrderId, orderPinned]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -905,10 +930,12 @@ export default function POSPage() {
       setOrderSearchResults([]);
       setOrderSearchOpen(false);
       setOrderSearchLoading(false);
+      setOrderSearchError("");
       setOrderSearchActive(-1);
       return;
     }
     setOrderSearchLoading(true);
+    setOrderSearchError("");
     const timer = setTimeout(async () => {
       try {
         const res = await orderAPI.getAll({ search: q, limit: 8 });
@@ -916,9 +943,10 @@ export default function POSPage() {
         setOrderSearchResults(list);
         setOrderSearchOpen(true);
         setOrderSearchActive(-1);
-      } catch {
+      } catch (err) {
         setOrderSearchResults([]);
-        setOrderSearchOpen(false);
+        setOrderSearchError(err?.response?.data?.message || "Search failed. Please try again.");
+        setOrderSearchOpen(true);
       } finally {
         setOrderSearchLoading(false);
       }
@@ -2258,6 +2286,8 @@ export default function POSPage() {
                 <div className="header-search-dropdown">
                   {orderSearchLoading ? (
                     <div className="header-search-status">Searching…</div>
+                  ) : orderSearchError ? (
+                    <div className="header-search-status header-search-status-error">{orderSearchError}</div>
                   ) : orderSearchResults.length === 0 ? (
                     <div className="header-search-status">No matching orders.</div>
                   ) : (
