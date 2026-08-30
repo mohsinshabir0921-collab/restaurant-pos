@@ -16,6 +16,11 @@ import {
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
+// Reports that rely on a date range (default: category, item, payment, tax, staff, customer, hourly)
+const DATE_BASED_REPORTS = ["category", "item", "payment", "tax", "staff", "customer", "hourly"];
+// All reports that filter by an explicit date range (includes "dateRange" itself)
+const ALL_DATE_RANGE_REPORTS = ["dateRange", ...DATE_BASED_REPORTS];
+
 export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState("today");
   const [loading, setLoading] = useState(false);
@@ -439,7 +444,7 @@ export default function ReportsPage() {
             ))}
           </nav>
 
-          {["dateRange", "category", "item", "payment", "tax", "staff", "customer", "hourly"].includes(activeReport) && (
+          {DATE_BASED_REPORTS.includes(activeReport) && (
             <form onSubmit={handleDateRangeSubmit} className="date-range-form">
               <h4>Date Range</h4>
               <div className="input-row">
@@ -452,8 +457,24 @@ export default function ReportsPage() {
         </aside>
 
         <main className="reports-content">
+          {activeReport === "dateRange" && (
+            <form onSubmit={handleDateRangeSubmit} className="date-range-panel">
+              <div className="date-range-panel-fields">
+                <div className="date-range-panel-field">
+                  <span>Start Date</span>
+                  <input className="form-input" type="date" value={dateRange.startDate} onChange={e => setDateRange(d => ({ ...d, startDate: e.target.value }))} required />
+                </div>
+                <div className="date-range-panel-field">
+                  <span>End Date</span>
+                  <input className="form-input" type="date" value={dateRange.endDate} onChange={e => setDateRange(d => ({ ...d, endDate: e.target.value }))} required />
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={loading}>Apply</button>
+            </form>
+          )}
+
           {(() => {
-            const needsDateRange = ["dateRange", "category", "item", "payment", "tax", "staff", "customer", "hourly"].includes(activeReport);
+            const needsDateRange = ALL_DATE_RANGE_REPORTS.includes(activeReport);
             const hasReport = !!reports[activeReport];
             const datesMissing = needsDateRange && !(dateRange.startDate && dateRange.endDate);
 
