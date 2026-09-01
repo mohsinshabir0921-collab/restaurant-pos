@@ -17,6 +17,10 @@ export default function WasteLogPage() {
   const [reasonFilter, setReasonFilter] = useState("");
   const [approvedFilter, setApprovedFilter] = useState("");
   const [formData, setFormData] = useState({ items: [], reason: "", reasonDetail: "", location: "", notes: "" });
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const fetchData = async () => {
     try {
@@ -63,6 +67,19 @@ export default function WasteLogPage() {
 
   const handleApprove = async (id) => { try { await wasteAPI.approve(id); fetchData(); } catch (err) { setError(err.response?.data?.message || "Approve failed"); } };
   const handleDelete = async (id) => { if (!confirm("Delete?")) return; try { await wasteAPI.delete(id); fetchData(); } catch (err) { setError(err.response?.data?.message || "Delete failed"); } };
+  const toggleSelection = (id) => setSelectedIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const handleSelectAll = () => { if (selectedIds.size === logs.length && logs.length > 0) setSelectedIds(new Set()); else setSelectedIds(new Set(logs.map((l) => l._id))); };
+  const handleDeselectAll = () => setSelectedIds(new Set());
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true); setError(""); setBulkResult(null);
+    try {
+      const res = await wasteAPI.bulkDelete([...selectedIds]);
+      setBulkResult(res.data);
+      if (res.data.blocked?.length) setError(`${res.data.blocked.length} waste log(s) blocked: ${res.data.blocked.map((b) => `${b.wasteNumber}: ${b.reason}`).join("; ")}`);
+      setSelectedIds(new Set()); setShowBulkConfirm(false); await fetchData();
+    } catch (err) { setError(err.response?.data?.message || "Bulk delete failed"); } finally { setBulkDeleting(false); }
+  };
 
   const totals = calcTotals();
 
@@ -72,15 +89,30 @@ export default function WasteLogPage() {
     <div className="waste-log-page">
       <div className="page-header"><h1>Waste Log</h1><button className="btn btn-primary" onClick={() => { setActiveTab("create"); openModal(); }}>Log Waste</button></div>
       {error && <div className="toast error">{error}</div>}
+      {bulkResult && !error && bulkResult.deletedCount > 0 && <div className="toast success">{bulkResult.deletedCount} waste log(s) deleted.</div>}
       <div className="filters">
         <select value={reasonFilter} onChange={e => setReasonFilter(e.target.value)}><option value="">All Reasons</option>{reasons.map(r => <option key={r} value={r}>{r}</option>)}</select>
         <select value={approvedFilter} onChange={e => setApprovedFilter(e.target.value)}><option value="">All</option><option value="true">Approved</option><option value="false">Pending</option></select>
       </div>
+      {logs.length > 0 && (
+        <div className="bulk-toolbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb", margin: "10px 0" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={logs.length > 0 && selectedIds.size === logs.length} onChange={handleSelectAll} aria-label={selectedIds.size === logs.length ? "Deselect all" : "Select all"} style={{ width: 18, height: 18, cursor: "pointer" }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size === logs.length ? "Deselect All" : "Select All"}</span>
+          </label>
+          <span style={{ fontSize: 13, color: "#6b7280" }}>{selectedIds.size} selected</span>
+          <button className="btn btn-sm btn-danger" disabled={selectedIds.size === 0 || bulkDeleting} onClick={() => setShowBulkConfirm(true)} style={{ marginLeft: 8, opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
+            {bulkDeleting ? "Deleting…" : `Delete Selected${selectedIds.size ? ` (${selectedIds.size})` : ""}`}
+          </button>
+          {selectedIds.size > 0 && <button className="btn btn-sm btn-secondary" onClick={handleDeselectAll} disabled={bulkDeleting}>Clear Selection</button>}
+        </div>
+      )}
 
       {activeTab === "list" && (
-        <div className="table-container"><table><thead><tr><th>Waste #</th><th>Date</th><th>Reason</th><th>Items</th><th>Qty</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+        <div className="table-container"><table><thead><tr><th style={{ width: 36 }}><input type="checkbox" checked={logs.length > 0 && selectedIds.size === logs.length} onChange={handleSelectAll} aria-label="Select all waste logs" style={{ width: 16, height: 16, cursor: "pointer" }} /></th><th>Waste #</th><th>Date</th><th>Reason</th><th>Items</th><th>Qty</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead><tbody>
           {logs.map(log => (
-            <tr key={log._id}>
+            <tr key={log._id} style={selectedIds.has(log._id) ? { background: "#f0fdfa" } : undefined}>
+              <td><input type="checkbox" checked={selectedIds.has(log._id)} onChange={() => toggleSelection(log._id)} aria-label={`Select ${log.wasteNumber}`} style={{ width: 16, height: 16, cursor: "pointer" }} /></td>
               <td><strong>{log.wasteNumber}</strong></td>
               <td>{new Date(log.wasteDate).toLocaleDateString()}</td>
               <td><span className="category-badge">{log.reason}</span></td>
@@ -126,6 +158,16 @@ export default function WasteLogPage() {
               <div className="totals-row"><strong>Total Qty: {totals.totalQty}</strong> <strong>Est. Cost: {formatCurrency(totals.totalCost)}</strong></div>
               <div className="modal-actions"><button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setEditingLog(null); setActiveTab("list"); }}>Cancel</button><button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button></div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showBulkConfirm && (
+        <div className="modal-overlay" onClick={() => !bulkDeleting && setShowBulkConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Delete {selectedIds.size} selected records?</h3><button onClick={() => setShowBulkConfirm(false)} disabled={bulkDeleting}>×</button></div>
+            <div className="modal-body"><p>Delete {selectedIds.size} selected waste log{selectedIds.size === 1 ? "" : "s"}? Approved logs (inventory already deducted) will be blocked.</p></div>
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowBulkConfirm(false)} disabled={bulkDeleting}>Cancel</button><button className="btn btn-danger" onClick={handleBulkDelete} disabled={bulkDeleting}>{bulkDeleting ? "Deleting…" : "Delete"}</button></div>
           </div>
         </div>
       )}

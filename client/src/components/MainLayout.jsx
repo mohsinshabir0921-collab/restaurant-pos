@@ -96,6 +96,10 @@ export default function MainLayout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifLoading, setNotifLoading] = useState(true);
   const [restaurantName, setRestaurantName] = useState("");
+  const [selectedNotifIds, setSelectedNotifIds] = useState(() => new Set());
+  const [showNotifBulkConfirm, setShowNotifBulkConfirm] = useState(false);
+  const [bulkDeletingNotif, setBulkDeletingNotif] = useState(false);
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
   const notifRef = useRef(null);
   const notifLoadedRef = useRef(false);
   const dropdownRef = useRef(null);
@@ -319,6 +323,54 @@ export default function MainLayout() {
     }
   };
 
+  const toggleNotifSelection = (id) => {
+    setSelectedNotifIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleSelectAllNotifs = () => {
+    if (selectedNotifIds.size === notifications.length && notifications.length > 0) setSelectedNotifIds(new Set());
+    else setSelectedNotifIds(new Set(notifications.map((n) => n._id)));
+  };
+  const handleBulkDeleteNotifs = async () => {
+    if (selectedNotifIds.size === 0) return;
+    setBulkDeletingNotif(true);
+    try {
+      const res = await notificationAPI.bulkDelete([...selectedNotifIds]);
+      if (res.data.success) {
+        const ids = new Set([...selectedNotifIds].map(String));
+        setNotifications((prev) => prev.filter((n) => !ids.has(String(n._id))));
+        const removedUnread = notifications.filter((n) => ids.has(String(n._id)) && !n.read).length;
+        if (removedUnread) setUnreadCount((c) => Math.max(0, c - removedUnread));
+        setSelectedNotifIds(new Set());
+        setShowNotifBulkConfirm(false);
+      }
+    } catch (err) {
+      // silent - keep state
+    } finally {
+      setBulkDeletingNotif(false);
+    }
+  };
+  const handleClearAllNotifs = async () => {
+    setBulkDeletingNotif(true);
+    try {
+      const res = await notificationAPI.clearAll();
+      if (res.data.success) {
+        setNotifications([]);
+        setUnreadCount(0);
+        setSelectedNotifIds(new Set());
+        setShowClearAllConfirm(false);
+      }
+    } catch (err) {
+      // ignore
+    } finally {
+      setBulkDeletingNotif(false);
+    }
+  };
+
   useEffect(() => {
     dropdownRef.current?.scrollIntoView({ block: "nearest" });
   }, []);
@@ -517,27 +569,41 @@ export default function MainLayout() {
                         </button>
                       )}
                     </div>
+                    {notifications.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 12px", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                          <input type="checkbox" checked={notifications.length > 0 && selectedNotifIds.size === notifications.length} onChange={handleSelectAllNotifs} aria-label={selectedNotifIds.size === notifications.length ? "Deselect all" : "Select all"} style={{ width: 16, height: 16, cursor: "pointer" }} />
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{selectedNotifIds.size === notifications.length ? "Deselect All" : "Select All"}</span>
+                        </label>
+                        <span style={{ fontSize: 12, color: "#6b7280" }}>{selectedNotifIds.size} selected</span>
+                        <button type="button" className="btn btn-sm btn-danger" disabled={selectedNotifIds.size === 0 || bulkDeletingNotif} onClick={() => setShowNotifBulkConfirm(true)} style={{ marginLeft: 6, padding: "4px 8px", fontSize: 12, opacity: selectedNotifIds.size === 0 ? 0.5 : 1 }}>Delete Selected{selectedNotifIds.size ? ` (${selectedNotifIds.size})` : ""}</button>
+                        <button type="button" className="btn btn-sm btn-secondary" disabled={notifications.length === 0 || bulkDeletingNotif} onClick={() => setShowClearAllConfirm(true)} style={{ padding: "4px 8px", fontSize: 12 }}>Clear All</button>
+                      </div>
+                    )}
                     <div className="notification-list">
                       {notifLoading && <div className="notification-empty">Loading…</div>}
                       {!notifLoading && notifications.length === 0 && (
                         <div className="notification-empty">No notifications</div>
                       )}
                       {notifications.map((n) => (
-                        <button
-                          key={n._id}
-                          className={`notification-item${n.read ? "" : " unread"}`}
-                          onClick={() => handleNotificationClick(n)}
-                        >
-                          <span className={`notification-icon type-${n.type || "system"}`}>
-                            {notifIcon(n.type)}
-                          </span>
-                          <span className="notification-body">
-                            <span className="notification-title">{n.title}</span>
-                            {n.message && <span className="notification-message">{n.message}</span>}
-                            <span className="notification-time">{timeAgo(n.createdAt)}</span>
-                          </span>
-                          {!n.read && <span className="notification-dot" />}
-                        </button>
+                        <div key={n._id} style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 8, background: selectedNotifIds.has(n._id) ? "#f0fdfa" : undefined }}>
+                          <input type="checkbox" checked={selectedNotifIds.has(n._id)} onChange={() => toggleNotifSelection(n._id)} onClick={(e) => e.stopPropagation()} aria-label={`Select notification ${n.title}`} style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0 }} />
+                          <button
+                            className={`notification-item${n.read ? "" : " unread"}`}
+                            onClick={() => handleNotificationClick(n)}
+                            style={{ flex: 1, textAlign: "left" }}
+                          >
+                            <span className={`notification-icon type-${n.type || "system"}`}>
+                              {notifIcon(n.type)}
+                            </span>
+                            <span className="notification-body">
+                              <span className="notification-title">{n.title}</span>
+                              {n.message && <span className="notification-message">{n.message}</span>}
+                              <span className="notification-time">{timeAgo(n.createdAt)}</span>
+                            </span>
+                            {!n.read && <span className="notification-dot" />}
+                          </button>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -571,6 +637,24 @@ export default function MainLayout() {
           <Outlet />
         </main>
       </div>
+      {showNotifBulkConfirm && (
+        <div className="modal-overlay" onClick={() => !bulkDeletingNotif && setShowNotifBulkConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Delete {selectedNotifIds.size} selected records?</h3><button onClick={() => setShowNotifBulkConfirm(false)} disabled={bulkDeletingNotif}>×</button></div>
+            <div className="modal-body"><p>Delete {selectedNotifIds.size} selected notification{selectedNotifIds.size === 1 ? "" : "s"}? Only your own notifications will be deleted.</p></div>
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowNotifBulkConfirm(false)} disabled={bulkDeletingNotif}>Cancel</button><button className="btn btn-danger" onClick={handleBulkDeleteNotifs} disabled={bulkDeletingNotif}>{bulkDeletingNotif ? "Deleting…" : "Delete"}</button></div>
+          </div>
+        </div>
+      )}
+      {showClearAllConfirm && (
+        <div className="modal-overlay" onClick={() => !bulkDeletingNotif && setShowClearAllConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Clear all notifications?</h3><button onClick={() => setShowClearAllConfirm(false)} disabled={bulkDeletingNotif}>×</button></div>
+            <div className="modal-body"><p>Delete all {notifications.length} notification{notifications.length === 1 ? "" : "s"}? This will only delete your own notifications — other users&apos; notifications are preserved.</p></div>
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowClearAllConfirm(false)} disabled={bulkDeletingNotif}>Cancel</button><button className="btn btn-danger" onClick={handleClearAllNotifs} disabled={bulkDeletingNotif}>{bulkDeletingNotif ? "Deleting…" : "Clear All"}</button></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

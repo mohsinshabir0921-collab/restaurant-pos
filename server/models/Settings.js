@@ -51,6 +51,7 @@ const defaultSettings = [
     saturday: { open: "11:00", close: "23:00" },
     sunday: { open: "12:00", close: "22:00" },
   }), description: "Opening hours for the website (JSON)", group: "restaurant", isPublic: true },
+  { key: "online_ordering_enabled", value: true, description: "Master switch: Accept Online Orders on public website", group: "restaurant", isPublic: true },
   { key: "takeaway_enabled", value: true, description: "Allow takeaway orders on the public website", group: "restaurant", isPublic: true },
   { key: "delivery_enabled", value: true, description: "Allow delivery orders on the public website", group: "restaurant", isPublic: true },
   { key: "cash_payment_enabled", value: true, description: "Allow cash/cash-on-delivery payment on the website", group: "restaurant", isPublic: true },

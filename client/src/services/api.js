@@ -182,6 +182,7 @@ export const customerAPI = {
   getOrders: (id, params) => api.get(`/customers/${id}/orders`, { params }),
   getStats: (id) => api.get(`/customers/${id}/stats`),
   redeemPoints: (id, points) => api.post(`/customers/${id}/redeem-points`, { points }),
+  bulkDelete: (ids) => api.delete("/customers/bulk", { data: { ids } }),
 };
 
 export const couponAPI = {
@@ -219,6 +220,7 @@ export const orderAPI = {
   printInvoice: (id) => api.post(`/orders/${id}/print-invoice`),
   editItems: (id, data) => api.put(`/orders/${id}/edit`, data),
   collectAdditional: (id, data) => api.post(`/orders/${id}/collect-additional`, data),
+  bulkDelete: (ids) => api.delete("/orders/bulk", { data: { ids } }),
 };
 
 export const deliveryAPI = {
@@ -246,6 +248,7 @@ export const paymentAPI = {
   createAdditionalCashfreeOrder: (orderId) => api.post("/payment/create-additional-order", { orderId }),
   verifyAdditionalCashfreePayment: (data) => api.post("/payment/verify-additional", data),
   generateAdditionalPaymentLink: (orderId) => api.post("/payment/additional-link", { orderId }),
+  bulkDelete: (ids) => api.delete("/payment/bulk", { data: { ids } }),
 };
 
 export const inventoryAPI = {
@@ -282,6 +285,7 @@ export const purchaseOrderAPI = {
   receive: (id, data) => api.patch(`/purchase-orders/${id}/receive`, data),
   cancel: (id, data) => api.patch(`/purchase-orders/${id}/cancel`, data),
   delete: (id) => api.delete(`/purchase-orders/${id}`),
+  bulkDelete: (ids) => api.delete("/purchase-orders/bulk", { data: { ids } }),
 };
 
 export const wasteAPI = {
@@ -292,6 +296,7 @@ export const wasteAPI = {
   update: (id, data) => api.put(`/waste/${id}`, data),
   approve: (id) => api.patch(`/waste/${id}/approve`),
   delete: (id) => api.delete(`/waste/${id}`),
+  bulkDelete: (ids) => api.delete("/waste/bulk", { data: { ids } }),
 };
 
 export const loyaltyAPI = {
@@ -316,6 +321,8 @@ export const notificationAPI = {
   getMine: () => api.get("/notifications"),
   markAsRead: (id) => api.patch(`/notifications/${id}/read`),
   markAllAsRead: () => api.patch("/notifications/read-all"),
+  bulkDelete: (ids) => api.delete("/notifications/bulk", { data: { ids } }),
+  clearAll: () => api.delete("/notifications/clear-all"),
 };
 
 export default api;

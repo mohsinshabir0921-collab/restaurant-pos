@@ -403,6 +403,13 @@ export default function POSPage() {
   const [linkError, setLinkError] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
 
+  // Bulk selection/delete for orders (admin only)
+  const [selectedOrderIds, setSelectedOrderIds] = useState(() => new Set());
+  const [showOrderBulkConfirm, setShowOrderBulkConfirm] = useState(false);
+  const [bulkDeletingOrders, setBulkDeletingOrders] = useState(false);
+  const [orderBulkError, setOrderBulkError] = useState("");
+  const [orderBulkResult, setOrderBulkResult] = useState(null);
+
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
@@ -1652,6 +1659,53 @@ export default function POSPage() {
     return <div className="action-buttons">{actions}</div>;
   };
 
+  // Bulk order selection helpers (persist across filters - operates on filteredOrders)
+  const toggleOrderSelection = (orderId) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+  const handleSelectAllOrders = () => {
+    if (selectedOrderIds.size === filteredOrders.length && filteredOrders.length > 0) {
+      setSelectedOrderIds(new Set());
+    } else {
+      setSelectedOrderIds(new Set(filteredOrders.map((o) => o._id)));
+    }
+  };
+  const handleDeselectAllOrders = () => setSelectedOrderIds(new Set());
+  const handleBulkDeleteOrders = async () => {
+    if (selectedOrderIds.size === 0) return;
+    setBulkDeletingOrders(true);
+    setOrderBulkError("");
+    setOrderBulkResult(null);
+    try {
+      const res = await orderAPI.bulkDelete([...selectedOrderIds]);
+      if (res.data.success) {
+        setOrderBulkResult(res.data);
+        const blockedCount = res.data.blocked?.length || 0;
+        const missingCount = res.data.missing?.length || 0;
+        if (blockedCount || missingCount) {
+          const parts = [];
+          if (res.data.deletedCount) parts.push(`${res.data.deletedCount} deleted`);
+          if (blockedCount) parts.push(`${blockedCount} blocked (${res.data.blocked.map((b) => b.reason).join("; ")})`);
+          if (missingCount) parts.push(`${missingCount} not found`);
+          setOrderBulkError(parts.join(" · "));
+        }
+        setSelectedOrderIds(new Set());
+        setShowOrderBulkConfirm(false);
+        await fetchOrders(false);
+        if (isKitchen || hasRole(["admin"])) fetchKitchenOrders();
+      }
+    } catch (err) {
+      setOrderBulkError(err.response?.data?.message || "Bulk delete failed");
+    } finally {
+      setBulkDeletingOrders(false);
+    }
+  };
+
   if (!isAdminOrCashier && !isKitchen) {
     return <div className="unauthorized">Access denied. Kitchen staff only.</div>;
   }
@@ -2367,6 +2421,38 @@ export default function POSPage() {
             </div>
           </div>
 
+          {hasRole(["admin"]) && filteredOrders.length > 0 && (
+            <div className="bulk-toolbar" style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb", margin: "10px 0" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={filteredOrders.length > 0 && selectedOrderIds.size === filteredOrders.length}
+                  onChange={handleSelectAllOrders}
+                  aria-label={selectedOrderIds.size === filteredOrders.length ? "Deselect all orders" : "Select all orders"}
+                  style={{ width: 18, height: 18, cursor: "pointer" }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedOrderIds.size === filteredOrders.length ? "Deselect All" : "Select All"}</span>
+              </label>
+              <span style={{ fontSize: 13, color: "#6b7280" }}>{selectedOrderIds.size} selected</span>
+              <button
+                className="btn btn-sm btn-danger"
+                disabled={selectedOrderIds.size === 0 || bulkDeletingOrders}
+                onClick={() => setShowOrderBulkConfirm(true)}
+                style={{ marginLeft: 8, opacity: selectedOrderIds.size === 0 ? 0.5 : 1 }}
+              >
+                {bulkDeletingOrders ? "Deleting…" : `Delete Selected${selectedOrderIds.size ? ` (${selectedOrderIds.size})` : ""}`}
+              </button>
+              {selectedOrderIds.size > 0 && (
+                <button className="btn btn-sm btn-secondary" onClick={handleDeselectAllOrders} disabled={bulkDeletingOrders}>Clear Selection</button>
+              )}
+            </div>
+          )}
+          {(orderBulkError || orderBulkResult) && (
+            <div className={`toast ${orderBulkError && orderBulkResult?.deletedCount === 0 ? "error" : orderBulkResult?.blocked?.length ? "error" : "success"}`} style={{ marginTop: 8 }}>
+              {orderBulkError || (orderBulkResult ? `${orderBulkResult.deletedCount} order(s) deleted.` : "")}
+            </div>
+          )}
+
           {ordersUpdatedAt && (
             <div className="orders-updated">
               Updated {new Date(ordersUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -2402,14 +2488,30 @@ export default function POSPage() {
                 const isDineIn = order.orderType === "dinein";
                 const isDelivery = order.orderType === "delivery";
                 const isExpanded = expandedOrderId === order._id;
+                const isSelected = selectedOrderIds.has(order._id);
                 return (
                   <div
                     key={order._id}
                     id={`order-row-${order._id}`}
-                    className={`order-card ${order._id === highlightedOrderId ? "order-card-highlight" : ""}`}
+                    className={`order-card ${order._id === highlightedOrderId ? "order-card-highlight" : ""} ${isSelected ? "order-card-selected" : ""}`}
+                    style={{
+                      ...(isSelected ? { outline: "2px solid #0f766e", borderRadius: 8 } : {}),
+                      ...(hasRole(["admin"]) ? { display: "flex", alignItems: "center" } : {}),
+                    }}
                   >
+                    {hasRole(["admin"]) && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleOrderSelection(order._id)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Select order ${order.orderNumber}`}
+                        style={{ width: 18, height: 18, cursor: "pointer", margin: "12px 0 12px 12px", flexShrink: 0 }}
+                      />
+                    )}
                     <button
                       className="order-card-main"
+                      style={{ flex: 1 }}
                       onClick={() => setExpandedOrderId(isExpanded ? null : order._id)}
                       aria-expanded={isExpanded}
                     >
@@ -2722,6 +2824,27 @@ export default function POSPage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setLastOrder(null)}>Close</button>
               <button className="btn btn-primary" onClick={() => handlePrint(lastOrder, "invoice")}>Print</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOrderBulkConfirm && (
+        <div className="modal-overlay" onClick={() => !bulkDeletingOrders && setShowOrderBulkConfirm(false)}>
+          <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Delete {selectedOrderIds.size} selected records?</h3>
+              <button className="modal-close" onClick={() => setShowOrderBulkConfirm(false)} disabled={bulkDeletingOrders} aria-label="Close">×</button>
+            </div>
+            <div className="modal-body">
+              <p>Delete {selectedOrderIds.size} selected order{selectedOrderIds.size === 1 ? "" : "s"}? This action cannot be undone. Orders linked to payments, tables or stock movements will be blocked by the server.</p>
+              {orderBulkError && <div className="toast error" style={{ marginTop: 8 }}>{orderBulkError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowOrderBulkConfirm(false)} disabled={bulkDeletingOrders}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleBulkDeleteOrders} disabled={bulkDeletingOrders}>
+                {bulkDeletingOrders ? "Deleting…" : "Delete"}
+              </button>
             </div>
           </div>
         </div>

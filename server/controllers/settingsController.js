@@ -11,6 +11,12 @@ const BOOLEAN_KEYS = new Set([
   "sms_enabled",
   "whatsapp_enabled",
   "email_enabled",
+  "takeaway_enabled",
+  "delivery_enabled",
+  "cash_payment_enabled",
+  "online_payment_enabled",
+  "website_enabled",
+  "online_ordering_enabled",
 ]);
 
 const validateSettingValue = (key, value) => {
@@ -19,6 +25,34 @@ const validateSettingValue = (key, value) => {
   }
   if (BOOLEAN_KEYS.has(key) && typeof value !== "boolean") {
     return `${key.replace(/_/g, " ")} must be true or false`;
+  }
+  if (key === "opening_hours") {
+    let parsed = value;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        return "opening hours must be valid JSON";
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "opening hours must be a valid object";
+    }
+    const timeRe = /^\d{1,2}:\d{2}$/;
+    for (const [day, slot] of Object.entries(parsed)) {
+      if (!slot || typeof slot !== "object") return `opening hours for ${day} must be an object`;
+      if (typeof slot.open !== "string" || typeof slot.close !== "string") {
+        return `opening hours for ${day} must have open and close as HH:mm strings`;
+      }
+      if (!timeRe.test(slot.open) || !timeRe.test(slot.close)) {
+        return `opening hours for ${day} must be HH:mm format`;
+      }
+      const [oh, om] = slot.open.split(":").map(Number);
+      const [ch, cm] = slot.close.split(":").map(Number);
+      if (oh < 0 || oh > 23 || om < 0 || om > 59 || ch < 0 || ch > 23 || cm < 0 || cm > 59) {
+        return `opening hours for ${day} has invalid time`;
+      }
+    }
   }
   return null;
 };

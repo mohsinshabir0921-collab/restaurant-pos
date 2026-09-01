@@ -13,6 +13,10 @@ export default function CustomersPage() {
   const [showModal, setShowModal] = useState(false);
   const [viewingCustomer, setViewingCustomer] = useState(null);
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
 
   const fetchCustomers = async () => {
     try {
@@ -69,6 +73,42 @@ export default function CustomersPage() {
     alert("Manual points addition requires backend endpoint");
   };
 
+  const toggleSelection = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleSelectAll = () => {
+    if (selectedIds.size === customers.length && customers.length > 0) setSelectedIds(new Set());
+    else setSelectedIds(new Set(customers.map((c) => c._id)));
+  };
+  const handleDeselectAll = () => setSelectedIds(new Set());
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setBulkDeleting(true);
+    setError("");
+    setBulkResult(null);
+    try {
+      const res = await customerAPI.bulkDelete([...selectedIds]);
+      setBulkResult(res.data);
+      if (res.data.blocked?.length) {
+        setError(`${res.data.blocked.length} customer(s) blocked: ${res.data.blocked.map((b) => `${b.name}: ${b.reason}`).join("; ")}`);
+      } else {
+        setError("");
+      }
+      setSelectedIds(new Set());
+      setShowBulkConfirm(false);
+      await fetchCustomers();
+    } catch (err) {
+      setError(err.response?.data?.message || "Bulk delete failed");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   if (loading) return <div className="loading">Loading...</div>;
 
   return (
@@ -84,11 +124,30 @@ export default function CustomersPage() {
       </div>
 
       {error && <div className="toast error">{error}</div>}
+      {bulkResult && !error && bulkResult.deletedCount > 0 && (
+        <div className="toast success">{bulkResult.deletedCount} customer(s) deleted.</div>
+      )}
+      {customers.length > 0 && (
+        <div className="bulk-toolbar" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid #e5e7eb", borderBottom: "1px solid #e5e7eb", margin: "10px 0" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={customers.length > 0 && selectedIds.size === customers.length} onChange={handleSelectAll} aria-label={selectedIds.size === customers.length ? "Deselect all" : "Select all"} style={{ width: 18, height: 18, cursor: "pointer" }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{selectedIds.size === customers.length ? "Deselect All" : "Select All"}</span>
+          </label>
+          <span style={{ fontSize: 13, color: "#6b7280" }}>{selectedIds.size} selected</span>
+          <button className="btn btn-sm btn-danger" disabled={selectedIds.size === 0 || bulkDeleting} onClick={() => setShowBulkConfirm(true)} style={{ marginLeft: 8, opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
+            {bulkDeleting ? "Deleting…" : `Delete Selected${selectedIds.size ? ` (${selectedIds.size})` : ""}`}
+          </button>
+          {selectedIds.size > 0 && <button className="btn btn-sm btn-secondary" onClick={handleDeselectAll} disabled={bulkDeleting}>Clear Selection</button>}
+        </div>
+      )}
 
       <div className="table-container">
         <table>
           <thead>
             <tr>
+              <th style={{ width: 36 }}>
+                <input type="checkbox" checked={customers.length > 0 && selectedIds.size === customers.length} onChange={handleSelectAll} aria-label="Select all customers" style={{ width: 16, height: 16, cursor: "pointer" }} />
+              </th>
               <th>Name</th>
               <th>Phone</th>
               <th>Email</th>
@@ -102,10 +161,11 @@ export default function CustomersPage() {
           </thead>
               <tbody>
                 {customers.length === 0 ? (
-                  <tr><td colSpan={9} className="no-results">No customers found.</td></tr>
+                  <tr><td colSpan={10} className="no-results">No customers found.</td></tr>
                 ) : (
                   customers.map(customer => (
-                  <tr key={customer._id}>
+                  <tr key={customer._id} style={selectedIds.has(customer._id) ? { background: "#f0fdfa" } : undefined}>
+                    <td><input type="checkbox" checked={selectedIds.has(customer._id)} onChange={() => toggleSelection(customer._id)} aria-label={`Select ${customer.name}`} style={{ width: 16, height: 16, cursor: "pointer" }} /></td>
                     <td>{customer.name}</td>
                     <td>{customer.phone}</td>
                     <td>{customer.email || "-"}</td>
@@ -129,6 +189,16 @@ export default function CustomersPage() {
         <span>Page {page} of {totalPages}</span>
         <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next</button>
       </div>
+
+      {showBulkConfirm && (
+        <div className="modal-overlay" onClick={() => !bulkDeleting && setShowBulkConfirm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header"><h3>Delete {selectedIds.size} selected records?</h3><button onClick={() => setShowBulkConfirm(false)} disabled={bulkDeleting}>×</button></div>
+            <div className="modal-body"><p>Delete {selectedIds.size} selected customer{selectedIds.size === 1 ? "" : "s"}? Customers with linked orders, payments or notifications will be blocked and not deleted.</p></div>
+            <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowBulkConfirm(false)} disabled={bulkDeleting}>Cancel</button><button className="btn btn-danger" onClick={handleBulkDelete} disabled={bulkDeleting}>{bulkDeleting ? "Deleting…" : "Delete"}</button></div>
+          </div>
+        </div>
+      )}
 
       {showModal && viewingCustomer && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setViewingCustomer(null); }}>

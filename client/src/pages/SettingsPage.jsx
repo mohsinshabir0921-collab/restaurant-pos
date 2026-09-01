@@ -23,6 +23,57 @@ const SETTING_GROUPS = [
 const getLabel = (key) =>
   key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
+// --- Restaurant Ordering helpers (IST, like server openingHours.js) ---
+const getNowInIST = () => {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs + 5.5 * 60 * 60000);
+};
+const parseOpeningHoursPOS = (value) => {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {}
+  }
+  return null;
+};
+const toMinutesPOS = (t) => {
+  if (!t || typeof t !== "string") return null;
+  const [h, m] = String(t).split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+};
+const isPOSOpenNow = (openingHoursValue) => {
+  const hours = parseOpeningHoursPOS(openingHoursValue);
+  if (!hours) return true;
+  const now = getNowInIST();
+  const dayKey = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"][now.getDay()];
+  const today = hours[dayKey];
+  if (!today) return true;
+  const open = toMinutesPOS(today.open);
+  const close = toMinutesPOS(today.close);
+  if (open == null || close == null) return true;
+  if (open === close) return false;
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  return nowMin >= open && nowMin < close;
+};
+const getDisplayTimesFromHours = (value) => {
+  const obj = parseOpeningHoursPOS(value);
+  if (!obj) return { open: "11:00", close: "23:00" };
+  const sample = obj.monday || obj.tuesday || obj.sunday || Object.values(obj)[0];
+  if (sample && sample.open && sample.close) return { open: sample.open, close: sample.close };
+  return { open: "11:00", close: "23:00" };
+};
+const buildOpeningHoursJson = (open, close) => {
+  const days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const out = {};
+  days.forEach(d => { out[d] = { open, close }; });
+  // Keep sunday as before but allow same; task example uses single global time
+  return JSON.stringify(out);
+};
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
@@ -166,6 +217,60 @@ export default function SettingsPage() {
             )}
           </div>
 
+          {activeGroup === "restaurant" && (() => {
+            const onlineEnabled = formData.online_ordering_enabled !== undefined ? formData.online_ordering_enabled : (groupSettings.online_ordering_enabled !== undefined ? groupSettings.online_ordering_enabled : true);
+            const { open: displayOpen, close: displayClose } = getDisplayTimesFromHours(formData.opening_hours ?? groupSettings.opening_hours);
+            const isOpenStatus = onlineEnabled => {
+              if (onlineEnabled === false) return false;
+              const val = formData.opening_hours ?? groupSettings.opening_hours;
+              return isPOSOpenNow(val);
+            };
+            const currentlyOpen = isOpenStatus(onlineEnabled);
+            return (
+              <div className="restaurant-ordering-card" style={{background:"var(--color-surface, #fff)",border:"1px solid #e5e7eb",borderRadius:8,padding:16,marginBottom:16}}>
+                <h3 style={{margin:"0 0 12px 0"}}>Restaurant Ordering</h3>
+                <div className="setting-field">
+                  <label>Accept Online Orders</label>
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={!!onlineEnabled}
+                      onChange={e => handleChange("online_ordering_enabled", e.target.checked)}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
+                <div className="setting-field">
+                  <label>Opening Time</label>
+                  <input
+                    type="time"
+                    value={displayOpen}
+                    onChange={e => {
+                      const newOpen = e.target.value;
+                      const newClose = displayClose;
+                      handleChange("opening_hours", buildOpeningHoursJson(newOpen, newClose));
+                    }}
+                  />
+                </div>
+                <div className="setting-field">
+                  <label>Closing Time</label>
+                  <input
+                    type="time"
+                    value={displayClose}
+                    onChange={e => {
+                      const newClose = e.target.value;
+                      const newOpen = displayOpen;
+                      handleChange("opening_hours", buildOpeningHoursJson(newOpen, newClose));
+                    }}
+                  />
+                </div>
+                <div className="ordering-status" style={{marginTop:12,padding:"8px 12px",borderRadius:6,background: currentlyOpen ? "#ecfdf5" : "#fef2f2",border: `1px solid ${currentlyOpen ? "#a7f3d0" : "#fecaca"}`,fontWeight:600}}>
+                  Status: {currentlyOpen ? "🟢 Restaurant is currently OPEN" : "🔴 Restaurant is currently CLOSED"}
+                </div>
+              </div>
+            );
+          })()}
+
           {activeGroup === "notifications" && (
             <div className="setting-field push-notifications-section">
               <label>Push Notifications</label>
@@ -252,7 +357,11 @@ export default function SettingsPage() {
           )}
 
           <div className="settings-form">
-            {Object.entries(formValues).map(([key, value]) => {
+            {Object.entries(formValues).filter(([key]) => {
+              // Hide the raw JSON and master switch when the dedicated Restaurant Ordering card is shown
+              if (activeGroup === "restaurant" && (key === "opening_hours" || key === "online_ordering_enabled")) return false;
+              return true;
+            }).map(([key, value]) => {
               const inputType = getInputType(key, groupSettings[key]);
                 return (
                   <div key={key} className="setting-field">

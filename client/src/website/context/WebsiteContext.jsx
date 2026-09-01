@@ -26,18 +26,19 @@ const parseOpeningHours = (value) => {
   return DEFAULT_OPENING_HOURS;
 };
 
-// TEMPORARY BYPASS: VITE_BYPASS_ORDERING_HOURS=true forces isOpen=true.
-// Easy to remove later: delete this check and the env flag.
-const isOrderingHoursBypassEnabled = () =>
-  String(import.meta.env.VITE_BYPASS_ORDERING_HOURS || "").toLowerCase() === "true";
+// Client-side open/closed check – mirrors server openingHours.js but must use
+// IST (Asia/Kolkata) like the server, not browser local time.
+const getNowInIST = () => {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs + 5.5 * 60 * 60000);
+};
 
-// Client-side open/closed check used only for display. Mirrors the server
-// enforcement but runs in the visitor's local time (fine for the banner).
 const isRestaurantOpenNow = (hours) => {
-  if (isOrderingHoursBypassEnabled()) return true;
   if (!hours || typeof hours !== "object") return true;
+  const nowIST = getNowInIST();
   const dayKey = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][
-    new Date().getDay()
+    nowIST.getDay()
   ];
   const today = hours[dayKey];
   if (!today || !today.open || !today.close) return true;
@@ -48,8 +49,7 @@ const isRestaurantOpenNow = (hours) => {
   const open = toMinutes(today.open);
   const close = toMinutes(today.close);
   if (open === close) return false;
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = nowIST.getHours() * 60 + nowIST.getMinutes();
   return nowMin >= open && nowMin < close;
 };
 
@@ -82,7 +82,11 @@ export const WebsiteProvider = ({ children }) => {
   );
 
   const openingHours = useMemo(() => parseOpeningHours(settings.opening_hours), [settings.opening_hours]);
-  const isOpen = useMemo(() => isRestaurantOpenNow(openingHours), [openingHours]);
+  const isOpen = useMemo(() => {
+    const onlineEnabled = settings.online_ordering_enabled;
+    if (onlineEnabled === false) return false;
+    return isRestaurantOpenNow(openingHours);
+  }, [openingHours, settings.online_ordering_enabled]);
 
   const value = useMemo(
     () => ({
