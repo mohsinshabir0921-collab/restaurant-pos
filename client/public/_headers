@@ -1,8 +1,23 @@
 /*
   X-Robots-Tag: index, follow
+  Cache-Control: public, max-age=0, must-revalidate
 
 /pos/*
   X-Robots-Tag: noindex, nofollow
+  Cache-Control: public, max-age=0, must-revalidate
 
 /pos
   X-Robots-Tag: noindex, nofollow
+  Cache-Control: public, max-age=0, must-revalidate
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/images/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/pos/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
