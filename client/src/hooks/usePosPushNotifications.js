@@ -39,10 +39,16 @@ export const usePosPushNotifications = () => {
 
   const checkSubscription = useCallback(async () => {
     try {
-      const subscription = await findExistingSubscription();
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
       setIsSubscribed(!!subscription);
     } catch (error) {
       console.error('Error checking subscription:', error);
+      // Fallback to any registration if ready fails (e.g. during SW update)
+      try {
+        const subscription = await findExistingSubscription();
+        setIsSubscribed(!!subscription);
+      } catch {}
     }
   }, [findExistingSubscription]);
 
@@ -83,14 +89,15 @@ export const usePosPushNotifications = () => {
 
     setLoading(true);
     try {
-      // Reuse an existing subscription (from any service worker registration)
-      // so a duplicate browser subscription is never created. The subscription
-      // is always re-saved to the backend (idempotent upsert) so the active DB
-      // row matches the browser's current endpoint + keys.
-      let subscription = await findExistingSubscription();
+      // Always use the subscription for the current /pos/ registration.
+      // Reusing a subscription from a different scope (e.g. legacy root SW)
+      // would save a stale endpoint that FCM will reject with 404/410,
+      // causing the backend to deactivate it and leaving isSubscribed true
+      // while no valid push can be delivered.
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
 
       if (!subscription) {
-        const registration = await navigator.serviceWorker.ready;
         // Convert VAPID key to Uint8Array
         const urlBase64ToUint8Array = (base64String) => {
           const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -120,7 +127,7 @@ export const usePosPushNotifications = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, permission, requestPermission, saveSubscriptionToBackend, findExistingSubscription]);
+  }, [user, permission, requestPermission, saveSubscriptionToBackend]);
 
   const unsubscribe = useCallback(async () => {
     if (!user) return false;
