@@ -7,6 +7,7 @@ const {
   createAdditionalCashfreeOrder,
   verifyAdditionalCashfreePayment,
   createAdditionalPaymentLink,
+  bulkDeletePayments,
 } = require("../controllers/paymentController");
 
 const { handleCashfreeWebhook } = require("../controllers/webhookController");
@@ -37,5 +38,6 @@ router.post(
   createAdditionalPaymentLink
 );
 router.post("/webhook", handleCashfreeWebhook);
+router.delete("/bulk", protect, authorizeRoles("admin"), bulkDeletePayments);
 
 module.exports = router;

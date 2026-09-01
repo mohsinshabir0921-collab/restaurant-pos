@@ -15,6 +15,8 @@ const {
   getCustomerOrders,
   getCustomerStats,
   redeemLoyaltyPoints,
+  deleteCustomer,
+  bulkDeleteCustomers,
 } = require("../controllers/customerController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -22,6 +24,8 @@ const { authorizeRoles } = require("../middleware/roleMiddleware");
 
 router.get("/", protect, authorizeRoles("admin", "cashier"), getCustomers);
 router.get("/search", protect, authorizeRoles("admin", "cashier"), searchCustomers);
+router.delete("/bulk", protect, authorizeRoles("admin"), bulkDeleteCustomers);
+router.delete("/:id", protect, authorizeRoles("admin"), deleteCustomer);
 router.get("/:id", protect, authorizeRoles("admin", "cashier"), getCustomerById);
 router.get("/phone/:phone", protect, authorizeRoles("admin", "cashier"), getCustomerByPhone);
 router.get("/:id/orders", protect, authorizeRoles("admin", "cashier"), getCustomerOrders);

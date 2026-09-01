@@ -38,8 +38,16 @@ const toMinutes = (time) => {
   return parts[0] * 60 + parts[1];
 };
 
+// TEMPORARY BYPASS: when BYPASS_ORDERING_HOURS=true, ordering is allowed regardless of schedule.
+// Easy to remove later: delete this check and the env flag.
+// Usage: set BYPASS_ORDERING_HOURS=true in server/.env to bypass closed-hours guard.
+const isOrderingHoursBypassEnabled = () => String(process.env.BYPASS_ORDERING_HOURS || "").toLowerCase() === "true";
+
+const isOpeningHoursBypassEnabled = isOrderingHoursBypassEnabled;
+
 // Returns true when the restaurant is open for orders right now.
 const isRestaurantOpenNow = (openingHoursValue) => {
+  if (isOrderingHoursBypassEnabled()) return true;
   const hours = parseOpeningHours(openingHoursValue);
   if (!hours) return true; // graceful: unknown schedule → allow
 
@@ -57,4 +65,4 @@ const isRestaurantOpenNow = (openingHoursValue) => {
   return nowMin >= open && nowMin < close;
 };
 
-module.exports = { isRestaurantOpenNow, parseOpeningHours };
+module.exports = { isRestaurantOpenNow, parseOpeningHours, isOrderingHoursBypassEnabled, isOpeningHoursBypassEnabled };

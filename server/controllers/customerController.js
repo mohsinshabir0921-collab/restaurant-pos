@@ -1,5 +1,6 @@
 const Customer = require("../models/Customer");
 const Order = require("../models/Order");
+const Payment = require("../models/Payment");
 const { handleError } = require("../utils/httpError");
 const { parsePagination } = require("../utils/pagination");
 
@@ -514,6 +515,69 @@ const redeemLoyaltyPoints = async (req, res) => {
   }
 };
 
+const performCustomerDeletion = async (customerId) => {
+  // Nullify customer references in orders/payments to preserve history without dangling refs.
+  // Notifications are NOT deleted and do NOT block deletion (intentionally preserved).
+  await Order.updateMany({ customer: customerId }, { $set: { customer: null } }).catch(()=>{});
+  await Payment.updateMany({ customer: customerId }, { $set: { customer: null } }).catch(()=>{});
+  await Customer.deleteOne({ _id: customerId });
+};
+
+const deleteCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid customer id" });
+    }
+    const customer = await Customer.findById(id);
+    if (!customer) return res.status(404).json({ success: false, message: "Customer not found" });
+    await performCustomerDeletion(customer._id);
+    return res.status(200).json({ success: true, message: "Customer deleted" });
+  } catch (error) {
+    console.log("DELETE CUSTOMER ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
+const bulkDeleteCustomers = async (req, res) => {
+  try {
+    const { parseIds } = require("../utils/bulkDelete");
+    let ids;
+    try {
+      ids = parseIds(req.body?.ids);
+    } catch (err) {
+      return res.status(err.status || 400).json({ success: false, message: err.message });
+    }
+    const customers = await Customer.find({ _id: { $in: ids } }).select("_id name").lean();
+    const foundMap = new Map(customers.map((c) => [String(c._id), c]));
+    const blocked = [];
+    const missing = [];
+    let deletedCount = 0;
+    for (const rawId of ids) {
+      const str = String(rawId);
+      const customer = foundMap.get(str);
+      if (!customer) { missing.push(str); continue; }
+      try {
+        await performCustomerDeletion(customer._id);
+        deletedCount += 1;
+      } catch (e) {
+        blocked.push({ id: str, name: customer.name, reason: e.message });
+      }
+    }
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} customer${deletedCount === 1 ? "" : "s"} deleted.`,
+      deletedCount,
+      blocked,
+      missing,
+    });
+  } catch (error) {
+    console.log("BULK DELETE CUSTOMERS ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   getCustomers,
   searchCustomers,
@@ -528,4 +592,6 @@ module.exports = {
   getCustomerOrders,
   getCustomerStats,
   redeemLoyaltyPoints,
+  deleteCustomer,
+  bulkDeleteCustomers,
 };

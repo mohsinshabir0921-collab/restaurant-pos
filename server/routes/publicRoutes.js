@@ -20,7 +20,7 @@ const {
 } = require("../controllers/paymentController");
 const { getPublicOrderTracking, getPublicRecentOrders } = require("../controllers/deliveryController");
 const { calculateDeliveryFee, getBaseDeliveryFee, getMaxDeliveryKm, MIN_DELIVERY_ORDER_VALUE } = require("../utils/delivery");
-const { isRestaurantOpenNow } = require("../utils/openingHours");
+const { isRestaurantOpenNow, isOrderingHoursBypassEnabled } = require("../utils/openingHours");
 const { handleError } = require("../utils/httpError");
 
 // ---------------------------------------------------------------------------
@@ -191,8 +191,11 @@ const validatePublicOrder = async (req, res, next) => {
     // --- Server-side availability + feature-toggle enforcement ---------------
     // The frontend already hides disabled options, but these checks are the
     // authoritative gate so a direct API call cannot bypass a disabled feature.
+    // TEMPORARY BYPASS: BYPASS_ORDERING_HOURS=true allows ordering outside hours.
+    // isRestaurantOpenNow already returns true when bypass is enabled; this
+    // explicit guard keeps the bypass isolated and easy to remove later.
     const openingHoursValue = await Settings.getValue("opening_hours", null);
-    if (!isRestaurantOpenNow(openingHoursValue)) {
+    if (!isOrderingHoursBypassEnabled() && !isRestaurantOpenNow(openingHoursValue)) {
       return res.status(403).json({
         success: false,
         message: "The restaurant is currently closed for online orders",

@@ -12,6 +12,7 @@ const InventoryItem = require("../models/InventoryItem");
 const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
 const OrderEditHistory = require("../models/OrderEditHistory");
+const Notification = require("../models/Notification");
 const { handleError } = require("../utils/httpError");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
@@ -2351,6 +2352,126 @@ const collectAdditionalPayment = async (req, res) => {
   }
 };
 
+// Internal helper to perform real business deletion for a single order.
+// Wrapped in a MongoDB transaction so inventory reversal and all cleanups
+// commit atomically. If any step fails, the entire deletion rolls back.
+const performOrderDeletionTx = async (order, userId, session) => {
+  const q = (query) => (session && query && typeof query.session === "function" ? query.session(session) : query);
+  const doCreate = async (Model, doc) => {
+    if (session) {
+      const res = await Model.create([doc], { session });
+      return res[0];
+    }
+    return Model.create(doc);
+  };
+
+  // Inventory reversal: if stock was deducted and not yet restored, restore it
+  if (order.inventoryDeducted && !order.inventoryRestored) {
+    for (const item of order.items || []) {
+      if (!item.menuItemId) continue;
+      const recipe = await Recipe.getByMenuItem(item.menuItemId);
+      if (!recipe || !recipe.isActive) continue;
+      for (const ingredient of recipe.ingredients) {
+        if (!ingredient.item) continue;
+        const invId = ingredient.item._id || ingredient.item;
+        const inventoryItem = await q(InventoryItem.findById(invId));
+        if (!inventoryItem) continue;
+        const qtyToRestore = (Number(ingredient.quantity) || 0) * (Number(item.qty) || 0);
+        if (qtyToRestore <= 0) continue;
+        const previousStock = inventoryItem.currentStock;
+        inventoryItem.currentStock = Math.max(0, inventoryItem.currentStock + qtyToRestore);
+        await inventoryItem.save(session ? { session } : undefined);
+        const movement = {
+          item: inventoryItem._id,
+          type: "in",
+          quantity: qtyToRestore,
+          previousStock,
+          newStock: inventoryItem.currentStock,
+          reason: `Order ${order.orderNumber} deleted: restore ${item.name} x ${item.qty}`,
+          referenceId: order._id,
+          referenceType: "order",
+        };
+        await doCreate(StockMovement, { ...movement, createdBy: userId });
+      }
+    }
+  }
+  await q(Payment.deleteMany({ order: order._id }));
+  await q(StockMovement.deleteMany({ referenceId: order._id }));
+  await q(OrderEditHistory.deleteMany({ order: order._id }));
+  await q(Notification.deleteMany({ entityId: order._id }));
+  await q(Table.updateMany({ currentOrder: order._id }, { $set: { currentOrder: null, status: "free" } }));
+  if (order.customer && (order.loyaltyPointsEarned || order.loyaltyPointsUsed)) {
+    const customer = await q(Customer.findById(order.customer));
+    if (customer) {
+      customer.loyaltyPoints = Math.max(0, (customer.loyaltyPoints || 0) - (order.loyaltyPointsEarned || 0) + (order.loyaltyPointsUsed || 0));
+      await customer.save(session ? { session } : undefined);
+    }
+  }
+  await q(Order.deleteOne({ _id: order._id }));
+};
+
+const performOrderDeletion = async (order, userId) => {
+  const { withTransaction } = require("../utils/transaction");
+  return withTransaction(async (session) => {
+    return performOrderDeletionTx(order, userId, session);
+  });
+};
+
+const deleteOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid order id" });
+    }
+    const order = await Order.findById(id);
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    await performOrderDeletion(order, req.user._id);
+    return res.status(200).json({ success: true, message: "Order deleted" });
+  } catch (error) {
+    console.log("DELETE ORDER ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
+const bulkDeleteOrders = async (req, res) => {
+  try {
+    const { parseIds } = require("../utils/bulkDelete");
+    let ids;
+    try {
+      ids = parseIds(req.body?.ids);
+    } catch (err) {
+      return res.status(err.status || 400).json({ success: false, message: err.message });
+    }
+    const orders = await Order.find({ _id: { $in: ids } });
+    const foundMap = new Map(orders.map((o) => [String(o._id), o]));
+    const blocked = [];
+    const missing = [];
+    let deletedCount = 0;
+    for (const rawId of ids) {
+      const str = String(rawId);
+      const order = foundMap.get(str);
+      if (!order) { missing.push(str); continue; }
+      try {
+        await performOrderDeletion(order, req.user._id);
+        deletedCount += 1;
+      } catch (e) {
+        console.error("BULK DELETE ORDER ITEM ERROR:", e.message);
+        blocked.push({ id: str, orderNumber: order.orderNumber, reason: e.message });
+      }
+    }
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} order${deletedCount === 1 ? "" : "s"} deleted.`,
+      deletedCount,
+      blocked,
+      missing,
+    });
+  } catch (error) {
+    console.log("BULK DELETE ORDERS ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   createOrder,
   getAllOrders,
@@ -2367,6 +2488,8 @@ module.exports = {
   markOrderPaid,
   editOrderItems,
   collectAdditionalPayment,
+  deleteOrder,
+  bulkDeleteOrders,
   calculateTax,
   calculateServiceCharge,
   applyCoupon,

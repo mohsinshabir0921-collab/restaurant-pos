@@ -26,9 +26,15 @@ const parseOpeningHours = (value) => {
   return DEFAULT_OPENING_HOURS;
 };
 
+// TEMPORARY BYPASS: VITE_BYPASS_ORDERING_HOURS=true forces isOpen=true.
+// Easy to remove later: delete this check and the env flag.
+const isOrderingHoursBypassEnabled = () =>
+  String(import.meta.env.VITE_BYPASS_ORDERING_HOURS || "").toLowerCase() === "true";
+
 // Client-side open/closed check used only for display. Mirrors the server
 // enforcement but runs in the visitor's local time (fine for the banner).
 const isRestaurantOpenNow = (hours) => {
+  if (isOrderingHoursBypassEnabled()) return true;
   if (!hours || typeof hours !== "object") return true;
   const dayKey = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][
     new Date().getDay()

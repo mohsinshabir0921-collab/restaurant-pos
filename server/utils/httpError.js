@@ -25,6 +25,11 @@ const handleError = (res, error) => {
     return res.status(400).json({ success: false, message: "Invalid request payload" });
   }
 
+  if (error.statusCode === 500 || error.status === 500) {
+    // Preserve explicit transaction-unavailable and other 500 messages
+    return res.status(500).json({ success: false, message: error.message || "Server error" });
+  }
+
   console.error("[SERVER ERROR]", error.name, error.message);
 
   return res.status(500).json({ success: false, message: "Server error" });

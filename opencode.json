@@ -2,8 +2,8 @@
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "omniroute": {
-      "npm": "@ai-sdk/openai-compatible",
       "name": "OmniRoute",
+      "npm": "@ai-sdk/openai-compatible",
       "options": {
         "baseURL": "http://localhost:20128/v1",
         "apiKey": "{env:OMNIROUTE_API_KEY}"
@@ -13,7 +13,41 @@
           "name": "OmniRoute Best Coding",
           "limit": {
             "context": 1048576,
-            "input": 1048576,
+            "output": 512000
+          }
+        },
+        "auto/coding": {
+          "name": "OmniRoute Coding",
+          "limit": {
+            "context": 1048576,
+            "output": 512000
+          }
+        },
+        "auto/fast": {
+          "name": "OmniRoute Fast",
+          "limit": {
+            "context": 1048576,
+            "output": 512000
+          }
+        },
+        "auto/cheap": {
+          "name": "OmniRoute Cheap",
+          "limit": {
+            "context": 1048576,
+            "output": 512000
+          }
+        },
+        "auto/reasoning": {
+          "name": "OmniRoute Reasoning",
+          "limit": {
+            "context": 1048576,
+            "output": 512000
+          }
+        },
+        "auto/best-free": {
+          "name": "OmniRoute Best Free",
+          "limit": {
+            "context": 1048576,
             "output": 384000
           }
         }

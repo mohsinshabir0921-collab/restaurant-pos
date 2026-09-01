@@ -933,6 +933,74 @@ const verifyAdditionalCashfreePayment = async (req, res) => {
   }
 };
 
+// Safely delete a set of payment records. Payments carry a REQUIRED reference
+// to a parent order, so a payment tied to a still-existing order is part of
+// that order's ledger and is blocked. Only orphaned payments (whose referenced
+// order no longer exists) are deleted, so no ledger reference is left dangling
+// and no live order's payment history is altered.
+const bulkDeletePayments = async (req, res) => {
+  try {
+    const { parseIds } = require("../utils/bulkDelete");
+    let ids;
+    try {
+      ids = parseIds(req.body?.ids);
+    } catch (err) {
+      return res.status(err.status || 400).json({ success: false, message: err.message });
+    }
+
+    const payments = await Payment.find({ _id: { $in: ids } })
+      .select("_id order amount method status")
+      .lean();
+
+    const foundIds = new Set(payments.map((p) => String(p._id)));
+    const orderIds = payments
+      .filter((p) => p.order)
+      .map((p) => p.order);
+    const existingOrders = orderIds.length
+      ? await Order.find({ _id: { $in: orderIds } }).select("_id").lean()
+      : [];
+    const liveOrderIds = new Set(existingOrders.map((o) => String(o._id)));
+
+    const deletableIds = [];
+    const blocked = [];
+    const missing = [];
+
+    for (const id of ids) {
+      const str = String(id);
+      if (!foundIds.has(str)) {
+        missing.push(str);
+        continue;
+      }
+      const payment = payments.find((p) => String(p._id) === str);
+      if (payment.order && liveOrderIds.has(String(payment.order))) {
+        blocked.push({
+          id: str,
+          orderId: String(payment.order),
+          reason: "payment belongs to a live order and cannot be deleted without the order",
+        });
+      } else {
+        deletableIds.push(payment._id);
+      }
+    }
+
+    if (deletableIds.length) {
+      await Payment.deleteMany({ _id: { $in: deletableIds } });
+    }
+
+    const deletedCount = deletableIds.length;
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} payment${deletedCount === 1 ? "" : "s"} deleted.`,
+      deletedCount,
+      blocked,
+      missing,
+    });
+  } catch (error) {
+    console.log("BULK DELETE PAYMENTS ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   createCashfreeOrder,
   verifyCashfreePayment,
@@ -945,4 +1013,5 @@ module.exports = {
   resolveOrderByAdditionalPaymentToken,
   createAdditionalPaymentLink,
   getAdditionalPaymentLinkInfo,
+  bulkDeletePayments,
 };

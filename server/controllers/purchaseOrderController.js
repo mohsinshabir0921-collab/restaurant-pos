@@ -1,5 +1,6 @@
 const PurchaseOrder = require("../models/PurchaseOrder");
 const InventoryItem = require("../models/InventoryItem");
+const StockMovement = require("../models/StockMovement");
 const { handleError } = require("../utils/httpError");
 const { parsePagination } = require("../utils/pagination");
 
@@ -177,17 +178,83 @@ const cancelPurchaseOrder = async (req, res) => {
   }
 };
 
+const performPODeletionTx = async (po, userId, session) => {
+  const q = (query) => (session && query && typeof query.session === "function" ? query.session(session) : query);
+  const doCreate = async (Model, doc) => {
+    if (session) {
+      const res = await Model.create([doc], { session });
+      return res[0];
+    }
+    return Model.create(doc);
+  };
+  if (po.status === "draft" || po.status === "cancelled") {
+    await q(StockMovement.deleteMany({ referenceId: po._id, referenceType: "purchase_order" }));
+    await q(PurchaseOrder.deleteOne({ _id: po._id }));
+    return;
+  }
+  if (po.status === "received" || po.status === "partially_received") {
+    const hasReceived = po.items.some((i) => (Number(i.receivedQty) || 0) > 0);
+    if (!hasReceived) {
+      await q(StockMovement.deleteMany({ referenceId: po._id, referenceType: "purchase_order" }));
+      await q(PurchaseOrder.deleteOne({ _id: po._id }));
+      return;
+    }
+    for (const poItem of po.items) {
+      const qty = Number(poItem.receivedQty) || 0;
+      if (qty <= 0) continue;
+      const inventoryItem = await q(InventoryItem.findById(poItem.item));
+      if (!inventoryItem) continue;
+      if (inventoryItem.currentStock < qty) {
+        const err = new Error(`Cannot delete PO ${po.poNumber}: insufficient stock to reverse ${inventoryItem.name} (need ${qty}, have ${inventoryItem.currentStock})`);
+        err.statusCode = 400;
+        throw err;
+      }
+    }
+    for (const poItem of po.items) {
+      const qty = Number(poItem.receivedQty) || 0;
+      if (qty <= 0) continue;
+      const inventoryItem = await q(InventoryItem.findById(poItem.item));
+      if (!inventoryItem) continue;
+      const previousStock = inventoryItem.currentStock;
+      inventoryItem.currentStock = Math.max(0, inventoryItem.currentStock - qty);
+      await inventoryItem.save(session ? { session } : undefined);
+      const movement = {
+        item: inventoryItem._id,
+        type: "out",
+        quantity: qty,
+        previousStock,
+        newStock: inventoryItem.currentStock,
+        reason: `PO ${po.poNumber} deletion reversal`,
+        referenceId: po._id,
+        referenceType: "purchase_order",
+      };
+      await doCreate(StockMovement, { ...movement, createdBy: userId });
+    }
+    await q(StockMovement.deleteMany({ referenceId: po._id, referenceType: "purchase_order" }));
+    await q(PurchaseOrder.deleteOne({ _id: po._id }));
+    return;
+  }
+  const err = new Error(`PO status ${po.status} is not deletable`);
+  err.statusCode = 400;
+  throw err;
+};
+
+const performPODeletion = async (po, userId) => {
+  const { withTransaction } = require("../utils/transaction");
+  return withTransaction(async (session) => performPODeletionTx(po, userId, session));
+};
+
 const deletePurchaseOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const po = await PurchaseOrder.findById(id);
     if (!po) return res.status(404).json({ success: false, message: "PO not found" });
-
-    if (po.status !== "draft" && po.status !== "cancelled") {
-      return res.status(400).json({ success: false, message: "Can only delete draft or cancelled POs" });
+    try {
+      await performPODeletion(po, req.user._id);
+    } catch (e) {
+      if (e.statusCode) return res.status(e.statusCode).json({ success: false, message: e.message });
+      throw e;
     }
-
-    await PurchaseOrder.findByIdAndDelete(id);
     return res.status(200).json({ success: true, message: "PO deleted" });
   } catch (error) {
     console.log("DELETE PO ERROR:", error);
@@ -220,6 +287,47 @@ const getPOSummary = async (req, res) => {
   }
 };
 
+// Bulk-delete purchase orders using same business rules as single delete.
+// Draft/cancelled: straightforward. Received/partially_received: inventory-aware reversal.
+// Sent/on_hold: blocked.
+const bulkDeletePurchaseOrders = async (req, res) => {
+  try {
+    const { parseIds } = require("../utils/bulkDelete");
+    let ids;
+    try {
+      ids = parseIds(req.body?.ids);
+    } catch (err) {
+      return res.status(err.status || 400).json({ success: false, message: err.message });
+    }
+    const pos = await PurchaseOrder.find({ _id: { $in: ids } });
+    const foundMap = new Map(pos.map((p) => [String(p._id), p]));
+    const blocked = [];
+    const missing = [];
+    let deletedCount = 0;
+    for (const rawId of ids) {
+      const str = String(rawId);
+      const po = foundMap.get(str);
+      if (!po) { missing.push(str); continue; }
+      try {
+        await performPODeletion(po, req.user._id);
+        deletedCount += 1;
+      } catch (e) {
+        blocked.push({ id: str, poNumber: po.poNumber, reason: e.message });
+      }
+    }
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} purchase order${deletedCount === 1 ? "" : "s"} deleted.`,
+      deletedCount,
+      blocked,
+      missing,
+    });
+  } catch (error) {
+    console.log("BULK DELETE PO ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   getPurchaseOrders,
   getPurchaseOrderById,
@@ -230,4 +338,5 @@ module.exports = {
   cancelPurchaseOrder,
   deletePurchaseOrder,
   getPOSummary,
+  bulkDeletePurchaseOrders,
 };

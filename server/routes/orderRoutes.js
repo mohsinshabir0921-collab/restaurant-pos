@@ -17,6 +17,8 @@ const {
   markOrderPaid,
   editOrderItems,
   collectAdditionalPayment,
+  deleteOrder,
+  bulkDeleteOrders,
 } = require("../controllers/orderController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -29,6 +31,8 @@ const {
 
 router.post("/", protect, authorizeRoles("admin", "cashier"), createOrder);
 router.get("/", protect, authorizeRoles("admin", "cashier"), getAllOrders);
+router.delete("/bulk", protect, authorizeRoles("admin"), bulkDeleteOrders);
+router.delete("/:id", protect, authorizeRoles("admin"), deleteOrder);
 router.get("/kitchen", protect, authorizeRoles("admin", "kitchen"), getKitchenOrders);
 router.get("/:id", protect, authorizeRoles("admin", "cashier"), getOrderById);
 router.get("/:id/tracking", protect, authorizeRoles("admin", "cashier", "delivery"), getOrderTracking);

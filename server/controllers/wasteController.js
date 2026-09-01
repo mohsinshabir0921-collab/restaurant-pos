@@ -1,5 +1,6 @@
 const WasteLog = require("../models/WasteLog");
 const InventoryItem = require("../models/InventoryItem");
+const StockMovement = require("../models/StockMovement");
 const { handleError } = require("../utils/httpError");
 const { parsePagination } = require("../utils/pagination");
 
@@ -126,14 +127,55 @@ const approveWasteLog = async (req, res) => {
   }
 };
 
+const performWasteDeletionTx = async (wasteLog, userId, session) => {
+  const q = (query) => (session && query && typeof query.session === "function" ? query.session(session) : query);
+  const doCreate = async (Model, doc) => {
+    if (session) {
+      const res = await Model.create([doc], { session });
+      return res[0];
+    }
+    return Model.create(doc);
+  };
+  if (!wasteLog.isApproved) {
+    await q(StockMovement.deleteMany({ referenceId: wasteLog._id, referenceType: "waste_log" }));
+    await q(WasteLog.deleteOne({ _id: wasteLog._id }));
+    return;
+  }
+  for (const wasteItem of wasteLog.items || []) {
+    const inventoryItem = await q(InventoryItem.findById(wasteItem.item));
+    if (!inventoryItem) continue;
+    const qty = Number(wasteItem.quantity) || 0;
+    if (qty <= 0) continue;
+    const previousStock = inventoryItem.currentStock;
+    inventoryItem.currentStock = inventoryItem.currentStock + qty;
+    await inventoryItem.save(session ? { session } : undefined);
+    const movement = {
+      item: inventoryItem._id,
+      type: "in",
+      quantity: qty,
+      previousStock,
+      newStock: inventoryItem.currentStock,
+      reason: `Waste ${wasteLog.wasteNumber} deletion reversal`,
+      referenceId: wasteLog._id,
+      referenceType: "waste_log",
+    };
+    await doCreate(StockMovement, { ...movement, createdBy: userId });
+  }
+  await q(StockMovement.deleteMany({ referenceId: wasteLog._id, referenceType: "waste_log" }));
+  await q(WasteLog.deleteOne({ _id: wasteLog._id }));
+};
+
+const performWasteDeletion = async (wasteLog, userId) => {
+  const { withTransaction } = require("../utils/transaction");
+  return withTransaction(async (session) => performWasteDeletionTx(wasteLog, userId, session));
+};
+
 const deleteWasteLog = async (req, res) => {
   try {
     const { id } = req.params;
     const wasteLog = await WasteLog.findById(id);
     if (!wasteLog) return res.status(404).json({ success: false, message: "Waste log not found" });
-    if (wasteLog.isApproved) return res.status(400).json({ success: false, message: "Cannot delete approved waste log" });
-
-    await WasteLog.findByIdAndDelete(id);
+    await performWasteDeletion(wasteLog, req.user._id);
     return res.status(200).json({ success: true, message: "Waste log deleted" });
   } catch (error) {
     console.log("DELETE WASTE LOG ERROR:", error);
@@ -170,6 +212,46 @@ const getWasteSummary = async (req, res) => {
   }
 };
 
+// Bulk-delete waste logs using same business rules as single delete.
+// Un-approved: straightforward. Approved: inventory reversal then delete.
+const bulkDeleteWasteLogs = async (req, res) => {
+  try {
+    const { parseIds } = require("../utils/bulkDelete");
+    let ids;
+    try {
+      ids = parseIds(req.body?.ids);
+    } catch (err) {
+      return res.status(err.status || 400).json({ success: false, message: err.message });
+    }
+    const logs = await WasteLog.find({ _id: { $in: ids } });
+    const foundMap = new Map(logs.map((l) => [String(l._id), l]));
+    const blocked = [];
+    const missing = [];
+    let deletedCount = 0;
+    for (const rawId of ids) {
+      const str = String(rawId);
+      const log = foundMap.get(str);
+      if (!log) { missing.push(str); continue; }
+      try {
+        await performWasteDeletion(log, req.user._id);
+        deletedCount += 1;
+      } catch (e) {
+        blocked.push({ id: str, wasteNumber: log.wasteNumber, reason: e.message });
+      }
+    }
+    return res.status(200).json({
+      success: true,
+      message: `${deletedCount} waste log${deletedCount === 1 ? "" : "s"} deleted.`,
+      deletedCount,
+      blocked,
+      missing,
+    });
+  } catch (error) {
+    console.log("BULK DELETE WASTE ERROR:", error);
+    return handleError(res, error);
+  }
+};
+
 module.exports = {
   getWasteLogs,
   getWasteLogById,
@@ -178,4 +260,5 @@ module.exports = {
   approveWasteLog,
   deleteWasteLog,
   getWasteSummary,
+  bulkDeleteWasteLogs,
 };

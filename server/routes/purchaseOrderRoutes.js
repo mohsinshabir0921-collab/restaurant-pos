@@ -11,6 +11,7 @@ const {
   cancelPurchaseOrder,
   deletePurchaseOrder,
   getPOSummary,
+  bulkDeletePurchaseOrders,
 } = require("../controllers/purchaseOrderController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -18,6 +19,7 @@ const { authorizeRoles } = require("../middleware/roleMiddleware");
 
 router.get("/", protect, authorizeRoles("admin"), getPurchaseOrders);
 router.get("/summary", protect, authorizeRoles("admin"), getPOSummary);
+router.delete("/bulk", protect, authorizeRoles("admin"), bulkDeletePurchaseOrders);
 router.get("/:id", protect, authorizeRoles("admin"), getPurchaseOrderById);
 router.post("/", protect, authorizeRoles("admin"), createPurchaseOrder);
 router.put("/:id", protect, authorizeRoles("admin"), updatePurchaseOrder);
