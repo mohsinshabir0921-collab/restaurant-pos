@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "include": [
+    "/pos",
+    "/pos/*"
+  ],
+  "exclude": [
+    "/assets/*",
+    "/images/*",
+    "/*.svg",
+    "/*.json",
+    "/*.mp3",
+    "/*.xml",
+    "/*.html",
+    "/favicon.svg",
+    "/google*"
+  ]
+}

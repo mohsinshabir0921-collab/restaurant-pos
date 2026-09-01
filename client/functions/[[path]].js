@@ -10,10 +10,11 @@ export async function onRequest(context) {
     if (assetResponse.status !== 404) return assetResponse;
   }
 
-  // POS deep-link fallback -> POS SPA shell (/pos and /pos/ are served by the
-  // static directory index at pos/index.html).
+  // POS deep-link fallback -> POS SPA shell. env.ASSETS.fetch() must be given
+  // the pretty path (/pos/) rather than the asset path (/pos/index.html);
+  // see Cloudflare Pages docs on ASSETS.fetch.
   if (path === "/pos" || path.startsWith("/pos/")) {
-    const posResponse = await env.ASSETS.fetch(new URL("/pos/index.html", url));
+    const posResponse = await env.ASSETS.fetch(new URL("/pos/", url));
     if (posResponse.status !== 404) return posResponse;
   }
 
