@@ -18,6 +18,8 @@ export default function HomePage() {
 
   const tagline = getSetting("restaurant_tagline", "Delicious food, delivered with love");
   const description = getSetting("restaurant_description", "");
+  const heroImageUrl = getSetting("hero_image", "");
+  const heroVideoUrl = getSetting("hero_video", "");
   const aboutImage = getSetting("about_image", "");
   const aboutImgSrc = aboutImage || "/images/about-restaurant.png";
   const aboutContent =
@@ -60,6 +62,8 @@ export default function HomePage() {
         description={description}
         openingHours={openingHours}
         orderNote={orderNote}
+        heroImageUrl={heroImageUrl}
+        heroVideoUrl={heroVideoUrl}
       />
 
       <ScrollFeast />

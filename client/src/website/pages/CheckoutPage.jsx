@@ -79,17 +79,38 @@ export default function CheckoutPage() {
   const effectiveOrderType = !takeawayEnabled ? "delivery" : !deliveryEnabled ? "takeaway" : orderType;
 
   const paymentOptions = useMemo(() => {
+    // Admin-configured payment methods (from the Payment settings group). When
+    // present, a method's label/description/enabled come from admin and replace
+    // the hardcoded presentation. The stable method id ("value") still drives
+    // business logic below (upi = Cashfree online, cod = cash-on-delivery). When
+    // absent we fall back to the legacy boolean flags and default presentation.
+    const configured = Array.isArray(settings.payment_methods) ? settings.payment_methods : [];
+    const methodFor = (id) => configured.find((x) => String(x.id) === id);
+    const opt = (id, defaultLabel, defaultHint) => {
+      const m = methodFor(id);
+      return {
+        value: id,
+        label: m && m.label ? String(m.label) : defaultLabel,
+        hint: m && m.description ? String(m.description) : defaultHint,
+      };
+    };
+    const methodEnabled = (id) => {
+      if (configured.length === 0) return true;
+      const m = methodFor(id);
+      return m ? m.enabled !== false : false;
+    };
+
     if (effectiveOrderType === "delivery") {
       const options = [];
-      if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Cashfree" });
-      if (cashEnabled) options.push({ value: "cod", label: "Cash on Delivery", hint: "Pay in cash when your order arrives" });
+      if (onlineEnabled && methodEnabled("upi")) options.push(opt("upi", "Pay Online (UPI / Card)", "Secure payment via Cashfree"));
+      if (cashEnabled && methodEnabled("cod")) options.push(opt("cod", "Cash on Delivery", "Pay in cash when your order arrives"));
       return options;
     }
     const options = [];
-    if (cashEnabled) options.push({ value: "cash", label: "Cash at Pickup", hint: "Pay when you collect your order" });
-    if (onlineEnabled) options.push({ value: "upi", label: "Pay Online (UPI / Card)", hint: "Secure payment via Cashfree" });
+    if (cashEnabled && methodEnabled("cash")) options.push(opt("cash", "Cash at Pickup", "Pay when you collect your order"));
+    if (onlineEnabled && methodEnabled("upi")) options.push(opt("upi", "Pay Online (UPI / Card)", "Secure payment via Cashfree"));
     return options;
-  }, [effectiveOrderType, cashEnabled, onlineEnabled]);
+  }, [effectiveOrderType, cashEnabled, onlineEnabled, settings.payment_methods]);
 
   const [paymentMethod, setPaymentMethod] = useState("");
 
@@ -129,8 +150,20 @@ export default function CheckoutPage() {
     orderType: effectiveOrderType,
     couponCode: appliedCoupon?.code,
     deliveryAddress: estimatePayloadDelivery,
+    customerPhone: customerPhone.trim(),
     enabled: estimateEnabled,
   });
+
+  // The server-authoritative reason why the applied coupon could not be applied
+  // (e.g. order below the global promo floor, or the customer is ineligible).
+  // When set, the promo is NOT fully applied — surface the reason instead of
+  // showing a discount that won't be honored.
+  const couponRejectedReason = useMemo(() => {
+    if (appliedCoupon && estimate && typeof estimate.couponReason === "string" && estimate.couponReason) {
+      return estimate.couponReason;
+    }
+    return null;
+  }, [appliedCoupon, estimate]);
 
   // Client-side guard that mirrors the backend delivery-radius rules. This is
   // used to (a) block the fallback estimate from computing a fee for an
@@ -138,10 +171,13 @@ export default function CheckoutPage() {
   // is valid. The server remains authoritative for the final order.
   const deliveryDistanceCheck = useMemo(() => {
     if (effectiveOrderType !== "delivery") return null;
-    const couponDiscount = Number(appliedCoupon?.discount) || 0;
+    // Prefer the authoritative server estimate discount when available; fall back
+    // to the client-validated coupon preview otherwise. The server remains the
+    // source of truth for the final order value.
+    const couponDiscount = Number(estimate?.couponDiscount) || Number(appliedCoupon?.discount) || 0;
     const finalOrderValue = subtotal - couponDiscount;
     return getDeliveryDistanceValidation(finalOrderValue, deliveryDistanceKm);
-  }, [effectiveOrderType, subtotal, appliedCoupon, deliveryDistanceKm]);
+  }, [effectiveOrderType, subtotal, estimate, appliedCoupon, deliveryDistanceKm]);
 
   // Authoritative server breakdown when available. If the estimate cannot be
   // fetched, fall back to values already known on the client (cart prices).
@@ -178,13 +214,20 @@ export default function CheckoutPage() {
     clearCouponError();
     const code = String(codeOverride ?? couponInput).trim();
     if (!code) return;
-    const coupon = await validateCoupon(code, couponOrderAmount, effectiveOrderType);
+    const items = cartItems.map((item) => ({
+      menuItemId: item.menuItemId,
+      qty: item.qty,
+      price: unitPrice(item),
+      modifiers: item.modifiers || [],
+      notes: item.notes || "",
+    }));
+    const coupon = await validateCoupon(code, couponOrderAmount, effectiveOrderType, customerPhone.trim(), items);
     if (coupon) {
       setAppliedCoupon(coupon);
       setCouponInput(code);
       notify("success", `Coupon ${coupon.code} applied`);
     }
-  }, [couponInput, couponOrderAmount, effectiveOrderType, validateCoupon, clearCouponError, notify, setCouponInput]);
+  }, [couponInput, couponOrderAmount, effectiveOrderType, customerPhone, validateCoupon, clearCouponError, notify, setCouponInput, cartItems, unitPrice]);
 
   // A promotional banner can deep-link here with ?coupon=CODE; apply it once.
   const [searchParams] = useSearchParams();
@@ -229,7 +272,7 @@ export default function CheckoutPage() {
       const distanceKm = Number(deliveryDistanceKm);
       if (!deliveryDistanceKm.trim() || !Number.isFinite(distanceKm) || distanceKm <= 0)
         return "Please enter your delivery distance in km";
-      const finalOrderValue = subtotal - (Number(appliedCoupon?.discount) || 0);
+      const finalOrderValue = subtotal - (Number(estimate?.couponDiscount) || Number(appliedCoupon?.discount) || 0);
       const distanceCheck = getDeliveryDistanceValidation(finalOrderValue, distanceKm);
       if (!distanceCheck.valid) return distanceCheck.message;
     }
@@ -621,16 +664,21 @@ export default function CheckoutPage() {
 
             <div className="coupon-box">
               {appliedCoupon ? (
-                <div className="applied-coupon">
-                  <span className="applied-coupon-code">{appliedCoupon.code}</span>
-                  <span className="applied-coupon-discount">−{formatPrice(appliedCoupon.discount || 0)}</span>
-                  <button type="button" className="applied-coupon-remove" onClick={handleRemoveCoupon} aria-label="Remove coupon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                </div>
+                <>
+                  <div className="applied-coupon">
+                    <span className="applied-coupon-code">{appliedCoupon.code}</span>
+                    <span className="applied-coupon-discount">
+                      −{formatPrice(Number(estimate?.couponDiscount) || Number(appliedCoupon.discount) || 0)}
+                    </span>
+                    <button type="button" className="applied-coupon-remove" onClick={handleRemoveCoupon} aria-label="Remove coupon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                  {couponRejectedReason && <p className="field-error">{couponRejectedReason}</p>}
+                </>
               ) : (
                 <>
                   <div className="coupon-input-row">

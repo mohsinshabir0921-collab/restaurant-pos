@@ -1,7 +1,7 @@
-/* ==========================================================================
-   Khyenn Chyenn — Homepage (dark, cinematic, editorial)
+﻿/* ==========================================================================
+   Khyenn Chyenn â€” Homepage (dark, cinematic, editorial)
    Isolated from website.css. Namespaced under .hp-*.
-   Near-black canvas · warm cream type · restrained saffron accent.
+   Near-black canvas Â· warm cream type Â· restrained saffron accent.
    Mobile-first. All motion disabled under prefers-reduced-motion.
    ========================================================================== */
 
@@ -51,146 +51,246 @@
 }
 
 /* --------------------------------------------------------------------------
-   HERO — "Warm Cinematic Editorial".
-   Full-bleed food photography as the dominant, integrated element. Strong
-   dark gradient overlay keeps copy readable. No floating sticker / cutout.
-   Mobile-first. Coherent breakpoints: 768px (tablet) and 1024px (desktop).
-   Motion is gated by prefers-reduced-motion and coarse pointers in the JSX.
+   HERO â€” "Flavours Worth Remembering".
+   Luxury Kashmiri editorial hero with NO photography.
+   Left: uppercase gold eyebrow, elegant serif headline, supporting copy,
+   dual CTAs and a quiet trust row. Right (desktop): an atmospheric brand
+   identity composition built entirely with CSS/SVG â€”
+   deep charcoal base, a subtle warm burgundy/amber radial atmosphere, a fine
+   antique-gold frame, a faint Kashmiri jaali lattice, a cusped arch motif,
+   a small label, and restrained micro-ornament. No glowing neon, no blobs,
+   no glassmorphism, no card appearance.
+   Mobile/tablet: solid deep-charcoal with the same faint jaali ornament
+   behind the copy; headline + CTAs stay the priority in the first viewport.
+   Fonts: Fraunces (serif display) + Work Sans (sans). Motion is a single
+   subtle opacity reveal, disabled under prefers-reduced-motion.
    -------------------------------------------------------------------------- */
 .hp-hero {
+  --hp-gold: #c8a163;
+  --hp-gold-soft: rgba(200, 161, 99, 0.55);
+  --hp-ivory: #f6efe2;
+  --hp-maroon: #3a1115;
+  --hp-amber: #6a3d18;
   position: relative;
   min-height: 100svh;
   margin-top: calc(-1 * var(--header-h));
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   color: var(--hp-cream);
   isolation: isolate;
   background: #0d0c0a;
 }
 
+/* Uploaded hero media (image or video) — full-bleed background behind the
+   content when .hp-hero--media is active. */
 .hp-hero-media {
   position: absolute;
   inset: 0;
-  z-index: 0;
-  /* Keep the food plate visually anchored toward the middle-upper area so it
-     stays present, while the lower band hosts the copy on the gradient. */
-}
-
-.hp-hero-media-el {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 38%;
-  display: block;
+  z-index: 0;
 }
 
-/* Strong dark scrim so text stays readable over the photo. Tailored per
-   breakpoint: heavier at the bottom (mobile copy zone) / left (desktop copy). */
+/* Subtle readability scrim over uploaded hero media — darkens the left and
+   bottom (where the copy sits) without hiding the video. Painted above the
+   media (z-index 1) and below the content (z-index 3). */
 .hp-hero-scrim {
   position: absolute;
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(13, 12, 10, 0.62) 0%, rgba(13, 12, 10, 0.22) 34%, rgba(13, 12, 10, 0.4) 60%, rgba(13, 12, 10, 0.97) 100%);
+    linear-gradient(180deg, rgba(10, 9, 7, 0.22) 0%, rgba(10, 9, 7, 0.06) 42%, rgba(10, 9, 7, 0.55) 100%),
+    linear-gradient(90deg, rgba(10, 9, 7, 0.42) 0%, rgba(10, 9, 7, 0.08) 55%, rgba(10, 9, 7, 0.12) 100%);
 }
 
-/* Mobile-only: localize extra darkness behind the eyebrow + headline so the
-   cream copy stays readable (>=4.5:1) where it crosses the bright pizza,
-   while the food stays visible in the upper region. The radial pools dark
-   from below the copy zone and fades out by ~78% height; the linear deepens
-   the mid band only. Desktop (>=768px) keeps the original scrim untouched. */
-@media (max-width: 767px) {
-  .hp-hero-scrim {
-    background:
-      radial-gradient(125% 105% at 50% 112%, rgba(13, 12, 10, 0.88) 0%, rgba(13, 12, 10, 0.55) 58%, rgba(13, 12, 10, 0) 82%),
-      linear-gradient(180deg, rgba(13, 12, 10, 0.65) 0%, rgba(13, 12, 10, 0.52) 40%, rgba(13, 12, 10, 0.7) 62%, rgba(13, 12, 10, 0.97) 100%);
-  }
+/* Full-bleed media layout: the decorative right-hand column is removed and
+   content overlays the media across the whole hero. */
+.hp-hero--media {
+  isolation: isolate;
+  background: #0d0c0a;
+}
+.hp-hero--media .hp-hero-content {
+  z-index: 3;
 }
 
+/* ---- Atmospheric brand composition (right column desktop) ---- */
+.hp-hero-visual {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Deep charcoal base + extremely subtle warm burgundy/amber atmosphere. */
+.hp-hero-visual-ambient {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 72% 34%, rgba(122, 65, 28, 0.16) 0%, rgba(13, 12, 10, 0) 60%),
+    radial-gradient(90% 100% at 8% 108%, rgba(58, 17, 21, 0.28) 0%, rgba(13, 12, 10, 0) 62%);
+}
+
+/* Faint Kashmiri lattice / jaali â€” never bright enough to fight the type. */
+.hp-hero-visual-jaali {
+  position: absolute;
+  inset: 12%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cg fill='none' stroke='%23c8a163' stroke-width='0.6'%3E%3Cpath d='M36 6 66 36 36 66 6 36Z'/%3E%3Cpath d='M36 18 54 36 36 54 18 36Z'/%3E%3Ccircle cx='36' cy='36' r='4'/%3E%3Cpath d='M36 0v12M0 36h12M72 36H60M36 72V60'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 72px 72px;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+}
+
+/* Faint circular / cusped arched motif inspired by Kashmiri architecture. */
+.hp-hero-visual-arch {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(200px, 26vw, 340px);
+  height: clamp(260px, 33vw, 430px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='200' viewBox='0 0 160 200'%3E%3Cg fill='none' stroke='%23c8a163' stroke-width='1'%3E%3Cpath d='M80 12 C 122 12 148 52 148 96 C 148 148 118 184 80 188 C 42 184 12 148 12 96 C 12 52 38 12 80 12 Z'/%3E%3Cpath d='M80 40 C 108 40 126 68 126 98 C 126 136 106 164 80 166 C 54 164 34 136 34 98 C 34 68 52 40 80 40 Z'/%3E%3Ccircle cx='80' cy='100' r='14'/%3E%3Cpath d='M80 34 V 26 M80 174 V 166 M28 96 H20 M132 96 H140'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 100% 100%;
+  opacity: 0.5;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+}
+
+/* Tiny concentric ring, a quiet central seal for the composition. */
+.hp-hero-visual-mandala {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(120px, 16vw, 210px);
+  height: clamp(120px, 16vw, 210px);
+  border: 1px solid rgba(200, 161, 99, 0.2);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.hp-hero-visual-mandala::after {
+  content: '';
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(200, 161, 99, 0.14);
+  border-radius: 50%;
+}
+
+/* Fine antique-gold inset frame. */
+.hp-hero-visual-frame {
+  position: absolute;
+  border: 1px solid rgba(200, 161, 99, 0.38);
+  pointer-events: none;
+}
+
+.hp-hero-visual-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: rgba(200, 161, 99, 0.6);
+  border-style: solid;
+  pointer-events: none;
+}
+
+.hp-hero-visual-corner-tl {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+  transform: translate(-3px, -3px);
+}
+
+.hp-hero-visual-corner-br {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+  transform: translate(3px, 3px);
+}
+
+/* Small editorial label. */
+.hp-hero-visual-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8%;
+  text-align: center;
+  font-size: 0.62rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgba(200, 161, 99, 0.6);
+  white-space: nowrap;
+}
+
+/* ---- Content column ---- */
 .hp-hero .container.hp-hero-content {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   width: 100%;
-  max-width: 560px;
+  max-width: none;
   margin: 0 auto;
-  padding-top: calc(var(--header-h) + clamp(16px, 4vh, 40px) + env(safe-area-inset-top));
-  padding-bottom: calc(clamp(28px, 8vh, 72px) + env(safe-area-inset-bottom));
-  padding-left: clamp(20px, 6vw, 48px);
-  padding-right: clamp(20px, 6vw, 48px);
+  padding-top: calc(var(--header-h) + env(safe-area-inset-top));
+  padding-bottom: calc(clamp(24px, 6vh, 56px) + env(safe-area-inset-bottom));
+  padding-left: clamp(20px, 6vw, 64px);
+  padding-right: clamp(20px, 6vw, 64px);
   text-align: left;
-}
-
-.hp-hero-eyebrow,
-.hp-hero-title,
-.hp-hero-tagline,
-.hp-hero-sub,
-.hp-hero-meta {
-  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5), 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
 .hp-hero-eyebrow {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
-  margin: 0 0 clamp(14px, 3vh, 24px);
-  font-size: clamp(0.66rem, 2.6vw, 0.78rem);
-  font-weight: 600;
+  margin: 0 0 clamp(14px, 3vh, 22px);
+  font-size: clamp(0.64rem, 2vw, 0.74rem);
+  font-weight: 500;
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: var(--hp-saffron);
+  color: var(--hp-gold);
   max-width: 100%;
 }
 
 .hp-hero-eyebrow-rule {
   flex: none;
-  width: 42px;
+  width: 46px;
   height: 1px;
-  background: linear-gradient(90deg, var(--hp-saffron), rgba(224, 146, 43, 0.2));
+  background: linear-gradient(90deg, var(--hp-gold), rgba(200, 161, 99, 0.15));
 }
 
 .hp-hero-title {
   margin: 0;
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: clamp(2.6rem, 11vw, 3.4rem);
-  line-height: 1.02;
-  letter-spacing: -0.015em;
-  color: #f8f0e0;
+  font-weight: 500;
+  font-size: clamp(2.3rem, 8vw, 3.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.014em;
+  color: var(--hp-ivory);
   overflow-wrap: break-word;
+  max-width: 15ch;
 }
 
-.hp-hero-tagline {
-  margin: clamp(14px, 3vh, 24px) 0 0;
-  font-family: var(--font-display);
-  font-size: clamp(1.15rem, 4.6vw, 1.6rem);
-  line-height: 1.25;
+.hp-hero-title em {
+  font-style: italic;
+  font-weight: 400;
   color: var(--hp-cream-2);
-  max-width: 40ch;
 }
 
 .hp-hero-sub {
   margin: clamp(12px, 2.6vh, 20px) 0 0;
-  font-size: clamp(0.95rem, 3.4vw, 1.05rem);
-  line-height: 1.55;
-  color: var(--hp-dim);
-  max-width: 46ch;
-}
-
-.hp-hero-meta {
-  margin: clamp(14px, 3vh, 22px) 0 0;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(247, 240, 227, 0.66);
+  font-size: clamp(0.95rem, 3vw, 1.05rem);
+  line-height: 1.6;
+  color: var(--hp-cream-2);
+  max-width: 44ch;
 }
 
 .hp-hero-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  margin-top: clamp(22px, 5vh, 36px);
+  margin-top: clamp(20px, 4.6vh, 32px);
 }
 
 .hp-hero-actions .btn {
@@ -198,10 +298,11 @@
   justify-content: center;
   min-width: 0;
   padding: 15px 30px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.86rem;
-  letter-spacing: 0.1em;
+  border-radius: 1px;
+  font-family: var(--font);
+  font-weight: 500;
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   border: 1px solid transparent;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.4s ease,
@@ -210,76 +311,247 @@
 }
 
 .hp-hero-actions .btn-light {
-  background: linear-gradient(180deg, #f8f0e0 0%, #ecddc0 100%);
-  color: #4a0f0d;
-  border-color: rgba(248, 240, 224, 0.9);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  background: linear-gradient(180deg, #f6edd9 0%, #ecdbb8 100%);
+  color: #2a1a10;
+  border-color: rgba(200, 161, 99, 0.85);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
 }
 
 .hp-hero-actions .btn-light:hover {
   transform: translateY(-2px);
-  background: linear-gradient(180deg, #fff8ea 0%, #f4e7cc 100%);
+  background: linear-gradient(180deg, #fff8ea 0%, #f2e3c4 100%);
   border-color: #d8b876;
-  box-shadow: 0 16px 42px rgba(216, 184, 118, 0.3);
+  box-shadow: 0 18px 40px rgba(200, 161, 99, 0.28);
 }
 
 .hp-hero-actions .btn-outline-light {
-  background: transparent;
-  color: #f8f0e0;
-  border-color: rgba(216, 184, 118, 0.55);
+  background: rgba(13, 12, 10, 0.4);
+  color: var(--hp-ivory);
+  border-color: rgba(200, 161, 99, 0.55);
 }
 
 .hp-hero-actions .btn-outline-light:hover {
   transform: translateY(-2px);
-  background: rgba(216, 184, 118, 0.1);
+  background: rgba(200, 161, 99, 0.12);
   color: #fff8ea;
-  border-color: #d8b876;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.3);
+  border-color: var(--hp-gold);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
 }
 
-/* Tablet — copy block widens a touch, food stays integrated. */
-@media (min-width: 768px) {
-  .hp-hero .container.hp-hero-content {
-    max-width: 620px;
-    padding-left: clamp(28px, 7vw, 64px);
-    padding-right: clamp(28px, 7vw, 64px);
+/* ---- Quiet trust / meta row ---- */
+.hp-hero-trust {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: clamp(18px, 4vh, 28px) 0 0;
+  padding: 0;
+}
+
+.hp-hero-trust-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: rgba(247, 240, 227, 0.62);
+  white-space: nowrap;
+}
+
+.hp-hero-trust-sep {
+  width: 14px;
+  height: 1px;
+  background: rgba(200, 161, 99, 0.4);
+  flex: none;
+}
+
+/* ===== Mobile & tablet: solid charcoal, faint ornament behind copy; the
+   headline + CTAs remain the priority and stay in the first viewport. ===== */
+@media (max-width: 1023.98px) {
+  .hp-hero {
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
   }
+
+  .hp-hero-visual-jaali {
+    inset: 16% 26%;
+    opacity: 0.3;
+  }
+
+  .hp-hero-visual-arch {
+    width: clamp(220px, 60vw, 340px);
+    height: clamp(280px, 76vw, 420px);
+    opacity: 0.3;
+    top: 34%;
+  }
+
+  .hp-hero-visual-mandala,
+  .hp-hero-visual-label {
+    display: none;
+  }
+
+  .hp-hero-visual-frame,
+  .hp-hero-visual-corner {
+    opacity: 0.5;
+  }
+
+  .hp-hero .container.hp-hero-content {
+    margin: 0;
+    padding-top: calc(var(--header-h) + clamp(20px, 6vh, 44px) + env(safe-area-inset-top));
+    padding-bottom: calc(clamp(28px, 8vh, 60px) + env(safe-area-inset-bottom));
+  }
+
   .hp-hero-title {
-    font-size: clamp(3rem, 6.5vw, 4.2rem);
+    max-width: 15ch;
+  }
+
+  .hp-hero-actions .btn {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+/* Small phones â€” CTAs stack full width so nothing overflows or clips. */
+@media (max-width: 420px) {
+  .hp-hero-actions {
+    width: 100%;
   }
   .hp-hero-actions .btn {
-    min-width: 200px;
+    flex: 1 1 100%;
+  }
+  .hp-hero .container.hp-hero-content {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .hp-hero-title {
+    font-size: clamp(2.05rem, 8vw, 2.5rem);
+  }
+  .hp-hero-visual-jaali {
+    inset: 14% 20%;
   }
 }
 
-/* Desktop — cinematic split: copy on a deliberate safe left column, strong
-   left-to-right dark gradient pulling the eye across to the food on the right. */
-@media (min-width: 1024px) {
-  .hp-hero {
-    align-items: center;
-  }
-  .hp-hero-scrim {
-    background:
-      linear-gradient(90deg, rgba(13, 12, 10, 0.92) 0%, rgba(13, 12, 10, 0.55) 34%, rgba(13, 12, 10, 0.12) 64%, rgba(13, 12, 10, 0) 78%),
-      linear-gradient(180deg, rgba(13, 12, 10, 0.5) 0%, rgba(13, 12, 10, 0.12) 28%, rgba(13, 12, 10, 0.5) 82%, rgba(13, 12, 10, 0.96) 100%);
-  }
+/* ===== Tablet â€” roomier hero ===== */
+@media (min-width: 768px) and (max-width: 1023.98px) {
   .hp-hero .container.hp-hero-content {
-    margin-right: auto;
-    margin-left: 0;
-    max-width: 560px;
-    padding-left: clamp(40px, 6vw, 104px);
-    padding-right: 40px;
-    padding-bottom: clamp(48px, 10vh, 120px);
+    max-width: 620px;
+    margin: 0 auto;
   }
   .hp-hero-title {
-    font-size: clamp(3.4rem, 5vw, 5rem);
+    font-size: clamp(3rem, 7vw, 4.2rem);
   }
+  .hp-hero-actions .btn {
+    min-width: 190px;
+  }
+}
+
+/* ===== Desktop (>=1024px) â€” asymmetric editorial split ===== */
+@media (min-width: 1024px) {
+  .hp-hero {
+    display: grid;
+    grid-template-columns: 44% 56%;
+    grid-template-rows: 1fr;
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .hp-hero-visual {
+    position: relative;
+    grid-column: 2;
+    grid-row: 1;
+    height: 100%;
+    padding: clamp(3rem, 8vh, 5.25rem) clamp(2rem, 6vw, 6rem) clamp(3rem, 8vh, 5.25rem) 0;
+  }
+
+  /* The ornament settles inside the frame for a cohesive identity panel. */
+  .hp-hero-visual-frame {
+    top: clamp(3rem, 8vh, 5.25rem);
+    right: clamp(2rem, 6vw, 6rem);
+    bottom: clamp(3rem, 8vh, 5.25rem);
+    left: 0;
+  }
+
+  .hp-hero-visual-corner-tl {
+    top: clamp(3rem, 8vh, 5.25rem);
+    left: 0;
+    transform: translate(6px, 4px);
+  }
+
+  .hp-hero-visual-corner-br {
+    bottom: clamp(3rem, 8vh, 5.25rem);
+    right: clamp(2rem, 6vw, 6rem);
+    transform: translate(-6px, -4px);
+  }
+
+  .hp-hero-visual-jaali {
+    inset: 18% 10% 18% 8%;
+  }
+
+  .hp-hero-visual-label {
+    bottom: clamp(2.2rem, 6vh, 4rem);
+  }
+
+  .hp-hero .container.hp-hero-content {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+    justify-self: end;
+    margin: 0;
+    max-width: none;
+    padding-top: calc(var(--header-h) + env(safe-area-inset-top));
+    padding-bottom: 0;
+    padding-left: clamp(40px, 6vw, 96px);
+    padding-right: clamp(40px, 5.5vw, 88px);
+    text-align: left;
+  }
+
+  .hp-hero-title {
+    font-size: clamp(3.6rem, 4.75vw, 4.9rem);
+    max-width: 13ch;
+    margin-left: 0;
+    margin-right: auto;
+  }
+
   .hp-hero-actions {
     gap: 18px;
   }
+
+  .hp-hero-trust {
+    margin-top: clamp(26px, 5vh, 38px);
+  }
+
+  /* Full-bleed uploaded media: drop the 2-column split; the media covers the
+     whole hero and the content floats left over it. */
+  .hp-hero--media {
+    display: flex;
+    grid-template-columns: none;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .hp-hero--media .hp-hero-content {
+    grid-column: auto;
+    grid-row: auto;
+    align-self: center;
+    justify-self: auto;
+    margin: 0;
+    max-width: 640px;
+    padding-left: clamp(40px, 7vw, 110px);
+    padding-right: clamp(40px, 7vw, 110px);
+    text-align: left;
+  }
+}
+
+@media (min-width: 1440px) {
+  .hp-hero-visual {
+    padding-right: clamp(3rem, 9vw, 10rem);
+  }
+  .hp-hero .container.hp-hero-content {
+    padding-right: clamp(40px, 7vw, 120px);
+  }
 }
 /* --------------------------------------------------------------------------
-   BRAND ETHOS — minimal editorial statement, real-data only
+   BRAND ETHOS â€” minimal editorial statement, real-data only
    -------------------------------------------------------------------------- */
 .hp-ethos {
   position: relative;
@@ -369,7 +641,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   FEATURED MENU — editorial, image-led, asymmetric
+   FEATURED MENU â€” editorial, image-led, asymmetric
    -------------------------------------------------------------------------- */
 .hp-featured {
   padding: clamp(84px, 11vw, 168px) 0;
@@ -655,7 +927,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   STORY — distinct editorial treatment (portrait, airy, left-aligned)
+   STORY â€” distinct editorial treatment (portrait, airy, left-aligned)
    -------------------------------------------------------------------------- */
 .hp-story {
   padding: clamp(84px, 11vw, 168px) 0;
@@ -776,7 +1048,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   GALLERY — asymmetric editorial photography rhythm
+   GALLERY â€” asymmetric editorial photography rhythm
    -------------------------------------------------------------------------- */
 .hp-gallery {
   padding: clamp(84px, 11vw, 168px) 0;
@@ -844,7 +1116,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   FINALE — dark cinematic ordering moment
+   FINALE â€” dark cinematic ordering moment
    -------------------------------------------------------------------------- */
 .hp-finale {
   padding: clamp(90px, 12vw, 180px) 0;
@@ -970,7 +1242,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   REDUCED MOTION — disable all decorative motion
+   REDUCED MOTION â€” disable all decorative motion
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .hp-featured-skeleton {
@@ -989,7 +1261,7 @@
 }
 
 /* ==========================================================================
-   Mobile responsive pass — appended hardening layer (desktop untouched)
+   Mobile responsive pass â€” appended hardening layer (desktop untouched)
    ========================================================================== */
 @media (max-width: 640px) {
   /* Featured hero foot: price + Add button must wrap instead of overflowing */

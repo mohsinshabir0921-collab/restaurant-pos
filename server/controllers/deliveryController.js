@@ -346,6 +346,9 @@ const getPublicOrderTracking = async (req, res) => {
         orderNumber: order.orderNumber,
         orderStatus: order.orderStatus,
         deliveryStatus: order.orderStatus,
+        total: order.total ?? 0,
+        paymentStatus: order.paymentStatus || "pending",
+        additionalAmountDue: order.additionalAmountDue ?? 0,
         assignedTo,
         destination: order.deliveryAddress
           ? {

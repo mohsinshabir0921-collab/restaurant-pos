@@ -5,6 +5,8 @@ const mongoose = require("mongoose");
 process.env.CASHFREE_WEBHOOK_SECRET = "test_webhook_secret";
 process.env.CASHFREE_CLIENT_ID = "test_client_id";
 process.env.CASHFREE_CLIENT_SECRET = "test_client_secret";
+process.env.VAPID_PUBLIC_KEY = "BA8bspY4-bdN9T8GOkjN8SAkCZcI1EVPgHYMa0KfL2vejKsSH29oyy9nlYpBUcPOSZxHMKQd6pySjSvpix7y5lk";
+process.env.VAPID_PRIVATE_KEY = "x8yFAB53HokT3Cd-chx7MuBrvFubEXlex337CoxpjtQ";
 
 const COUPON_MODEL = require.resolve("../models/Coupon");
 const PUBLIC_ROUTES = require.resolve("../routes/publicRoutes");
@@ -69,6 +71,16 @@ const createDeps = () => {
   Coupon.findValidForOrder = CouponModel.findValidForOrder.bind(Coupon);
 
   stubModule(COUPON_MODEL, Coupon);
+
+  // Default the global promo floor to ₹0 (disabled) so the validate/estimate
+  // endpoints don't need a DB-backed Settings lookup. Floor-specific behaviour
+  // is covered in couponPromo.test.js.
+  stubModule(require.resolve("../utils/promo"), {
+    MIN_PROMO_ORDER_VALUE_DEFAULT: 700,
+    getMinPromoOrderValue: async () => 0,
+    isPromoEligible: async () => true,
+    checkPromoFloor: async () => ({ eligible: true, min: 0, reason: null }),
+  });
 
   delete require.cache[PUBLIC_ROUTES];
   const publicRoutes = require(PUBLIC_ROUTES);
@@ -148,7 +160,7 @@ test("an expired coupon is rejected", async () => {
   await validateCoupon(req, res);
 
   assert.equal(res._status, 404);
-  assert.equal(res._body.message, "Invalid or expired coupon");
+  assert.equal(res._body.message, "Coupon expired");
 });
 
 test("a not-yet-valid coupon is rejected", async () => {
@@ -158,7 +170,7 @@ test("a not-yet-valid coupon is rejected", async () => {
   await validateCoupon(req, res);
 
   assert.equal(res._status, 404);
-  assert.equal(res._body.message, "Invalid or expired coupon");
+  assert.equal(res._body.message, "Coupon not yet valid");
 });
 
 test("an inactive coupon is rejected", async () => {
@@ -168,7 +180,7 @@ test("an inactive coupon is rejected", async () => {
   await validateCoupon(req, res);
 
   assert.equal(res._status, 404);
-  assert.equal(res._body.message, "Invalid or expired coupon");
+  assert.equal(res._body.message, "Coupon is inactive");
 });
 
 test("an unknown coupon code is rejected", async () => {
@@ -237,4 +249,5 @@ test("calculateDiscount applies flat coupons up to the order amount", () => {
 after(() => {
   delete require.cache[COUPON_MODEL];
   delete require.cache[PUBLIC_ROUTES];
+  delete require.cache[require.resolve("../utils/promo")];
 });

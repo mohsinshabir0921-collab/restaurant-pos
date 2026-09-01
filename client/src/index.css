@@ -1624,6 +1624,7 @@ h1, h2, h3, h4, h5, h6 { line-height: 1.25; }
 }
 
 .dropdown-item:hover { background: var(--color-bg-hover); }
+.dropdown-item-active { background: var(--color-bg-hover); }
 .dropdown-item.danger { color: var(--color-danger); }
 .dropdown-divider { height: 1px; background: var(--color-border); margin: var(--space-1) 0; }
 

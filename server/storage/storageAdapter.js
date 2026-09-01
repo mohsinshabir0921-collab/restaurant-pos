@@ -32,7 +32,17 @@ if (isConfigured) {
 }
 
 const MOCK_DIR = path.join(__dirname, "..", ".uploads-mock");
-const MOCK_PREFIX = "mock://";
+
+// In the local/mock backend the uploaded files are served over HTTP by the
+// Express app (see index.js -> app.use("/uploads", express.static(MOCK_DIR))),
+// so the stored URL must be a normal browser-loadable origin, not a bespoke
+// scheme. Defaults to the API server's own origin on the configured port.
+// Override with STORAGE_PUBLIC_URL when the API is reachable on a different
+// host/port in a local setup.
+const MOCK_ORIGIN =
+  (process.env.STORAGE_PUBLIC_URL ||
+    `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, "");
+const MOCK_PREFIX = `${MOCK_ORIGIN}/uploads/`;
 
 function extFromMime(mime, fallback) {
   const map = {

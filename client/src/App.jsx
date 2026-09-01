@@ -17,6 +17,7 @@ import CouponsPage from "./pages/CouponsPage";
 import BannersPage from "./pages/BannersPage";
 import StaffPage from "./pages/StaffPage";
 import SettingsPage from "./pages/SettingsPage";
+import PaymentMethodsEditPage from "./pages/PaymentMethodsEditPage";
 import InventoryPage from "./pages/InventoryPage";
 import RecipesPage from "./pages/RecipesPage";
 import PurchaseOrdersPage from "./pages/PurchaseOrdersPage";
@@ -53,6 +54,7 @@ function AppRoutes() {
         <Route path="/banners" element={<ProtectedRoute allowedRoles={["admin"]}><BannersPage /></ProtectedRoute>} />
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["admin"]}><StaffPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute allowedRoles={["admin"]}><SettingsPage /></ProtectedRoute>} />
+        <Route path="/settings/payments/edit/:id" element={<ProtectedRoute allowedRoles={["admin"]}><PaymentMethodsEditPage /></ProtectedRoute>} />
         <Route path="/inventory" element={<ProtectedRoute allowedRoles={["admin"]}><InventoryPage /></ProtectedRoute>} />
         <Route path="/recipes" element={<ProtectedRoute allowedRoles={["admin"]}><RecipesPage /></ProtectedRoute>} />
         <Route path="/purchase-orders" element={<ProtectedRoute allowedRoles={["admin"]}><PurchaseOrdersPage /></ProtectedRoute>} />

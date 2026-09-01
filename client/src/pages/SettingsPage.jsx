@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { settingsAPI } from "../services/api";
+import { usePosPushNotifications } from "../hooks/usePosPushNotifications";
 import {
   IconKitchen,
   IconReports,
@@ -30,6 +32,16 @@ export default function SettingsPage() {
   const [formData, setFormData] = useState({});
   const [testMsg, setTestMsg] = useState("");
   const [testing, setTesting] = useState(false);
+  
+  const {
+    isSubscribed,
+    permission,
+    loading: pushLoading,
+    subscribe,
+    unsubscribe
+  } = usePosPushNotifications();
+
+  const navigate = useNavigate();
 
   const fetchSettings = async () => {
     try {
@@ -153,6 +165,91 @@ export default function SettingsPage() {
               </button>
             )}
           </div>
+
+          {activeGroup === "notifications" && (
+            <div className="setting-field push-notifications-section">
+              <label>Push Notifications</label>
+              <div className="push-notifications-card">
+                <p>Receive instant browser notifications for new customer orders.</p>
+                
+                {permission === 'unsupported' && (
+                  <div className="toast warning">
+                    Push notifications are not supported in this browser
+                  </div>
+                )}
+                
+                {permission === 'denied' && (
+                  <div className="toast warning">
+                    Notification permission denied. Please enable notifications in your browser settings.
+                  </div>
+                )}
+                
+                {isSubscribed ? (
+                  <div className="push-status enabled">
+                    <span className="status-indicator">✓</span>
+                    <span>Push notifications enabled</span>
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={() => unsubscribe()}
+                      disabled={pushLoading}
+                    >
+                      {pushLoading ? "Updating..." : "Disable"}
+                    </button>
+                  </div>
+                ) : permission === 'granted' ? (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => subscribe()}
+                    disabled={pushLoading}
+                  >
+                    {pushLoading ? "Enabling..." : "Enable Notifications"}
+                  </button>
+                ) : permission === 'default' ? (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={() => subscribe()}
+                    disabled={pushLoading}
+                  >
+                    {pushLoading ? "Enabling..." : "Enable Notifications"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {activeGroup === "payment" && (
+            <div className="payment-methods-admin">
+              <h3>Payment Methods</h3>
+              <p className="field-hint">Manage the payment methods available to customers.</p>
+              {(() => {
+                const methods = settings.payment?.payment_methods;
+                if (!Array.isArray(methods) || methods.length === 0) {
+                  return <p className="field-hint">No payment methods configured yet.</p>;
+                }
+                return (
+                  <div className="payment-methods-admin-list">
+                    {methods.map((m) => (
+                      <div key={m.id} className="payment-methods-admin-row">
+                        <div className="payment-methods-admin-info">
+                          <strong>{m.label}</strong>
+                          <span>{m.description || m.id}</span>
+                        </div>
+                        <span className={`payment-methods-admin-status ${m.enabled === false ? "disabled" : ""}`}>
+                          {m.enabled === false ? "Disabled" : "Enabled"}
+                        </span>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => navigate(`/settings/payments/edit/${m.id}`)}
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           <div className="settings-form">
             {Object.entries(formValues).map(([key, value]) => {

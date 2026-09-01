@@ -13,7 +13,6 @@ const Recipe = require("../models/Recipe");
 const StockMovement = require("../models/StockMovement");
 const OrderEditHistory = require("../models/OrderEditHistory");
 const { handleError } = require("../utils/httpError");
-const { isPromoEligible } = require("../utils/promo");
 const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
 const thermalPrinter = require("../services/thermalPrinter");
@@ -90,18 +89,23 @@ const calculateServiceCharge = async (subtotal) => {
   return Math.round((subtotal * percent / 100) * 100) / 100;
 };
 
-const applyCoupon = async (code, orderAmount, orderType, customerId, context = "pos") => {
-  const coupon = await Coupon.findValidForOrder(code, orderAmount, orderType, customerId);
-  if (!coupon) return { discount: 0, coupon: null };
+const applyCoupon = async (code, orderAmount, orderType, customerId, context = "pos", items = []) => {
+  const result = await Coupon.findValidForOrder(code, orderAmount, orderType, customerId, context);
+  const coupon = result.coupon;
+  if (!coupon) return { discount: 0, coupon: null, reason: result.reason };
 
   // Public/online orders must clear the admin-configurable bulk-order promo
   // floor. In-store (POS) coupons are not subject to this restriction.
-  if (context === "online" && !(await isPromoEligible(orderAmount))) {
-    return { discount: 0, coupon: null };
+  if (context === "online") {
+    const { checkPromoFloor } = require("../utils/promo");
+    const floor = await checkPromoFloor(orderAmount);
+    if (!floor.eligible) {
+      return { discount: 0, coupon: null, reason: floor.reason };
+    }
   }
 
-  const discount = coupon.calculateDiscount(orderAmount);
-  return { discount, coupon };
+  const discount = coupon.calculateDiscount(orderAmount, items);
+  return { discount, coupon, reason: null };
 };
 
 // Aggregate required inventory across all order items and report shortages.
@@ -519,10 +523,23 @@ const createOrder = async (req, res) => {
     if (couponCode) {
       console.log("Validating coupon:", couponCode);
       const couponContext = req.body.source === "online" ? "online" : "pos";
-      const result = await applyCoupon(couponCode, subtotal, orderType, customer?._id, couponContext);
+      const result = await applyCoupon(couponCode, subtotal, orderType, customer?._id, couponContext, cleanItems);
       couponDiscount = result.discount;
       appliedCoupon = result.coupon;
       console.log("Coupon result:", { couponDiscount, appliedCoupon: !!appliedCoupon });
+
+      // Public website orders must revalidate the coupon at order creation. If
+      // the customer submitted a coupon that no longer passes server-side
+      // validation (expired, usage limit reached, minimum not met, etc.), reject
+      // rather than silently charge full price. The discount is ALWAYS computed
+      // here from `couponDiscount`/`result.discount`; the client-sent discount
+      // is never trusted.
+      if (couponContext === "online" && !appliedCoupon) {
+        return res.status(400).json({
+          success: false,
+          message: result.reason || "The coupon is no longer valid",
+        });
+      }
     }
 
     console.log("--- Step 10: Discount calculation ---");

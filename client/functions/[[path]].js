@@ -12,7 +12,7 @@ export async function onRequest(context) {
 
   // POS deep-link fallback -> POS SPA shell (/pos and /pos/ are served by the
   // static directory index at pos/index.html).
-  if (path.startsWith("/pos/")) {
+  if (path === "/pos" || path.startsWith("/pos/")) {
     const posResponse = await env.ASSETS.fetch(new URL("/pos/index.html", url));
     if (posResponse.status !== 404) return posResponse;
   }

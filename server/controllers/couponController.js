@@ -85,7 +85,7 @@ const getCouponById = async (req, res) => {
 
 const validateCoupon = async (req, res) => {
   try {
-    const { code, orderAmount, orderType, customerId, context } = req.query;
+    const { code, orderAmount, orderType, customerId, context, items, customerPhone } = req.query;
 
     if (!code) {
       return res.status(400).json({
@@ -94,32 +94,70 @@ const validateCoupon = async (req, res) => {
       });
     }
 
-    const coupon = await Coupon.findValidForOrder(
+    const parsedItems = (() => {
+      if (Array.isArray(items)) return items;
+      if (typeof items === "string") {
+        try { return JSON.parse(items); } catch { return []; }
+      }
+      return [];
+    })();
+
+    // Resolve an existing customer by phone so eligibility that depends on
+    // customer state (first order, customer tags, per-customer usage) can be
+    // checked at validation time when identity is known. A phone with no
+    // matching record is treated as a brand-new customer (first-order eligible,
+    // no tags, zero prior usage).
+    let resolvedCustomerId = null;
+    if (customerId) {
+      resolvedCustomerId = customerId;
+    } else if (customerPhone && String(customerPhone).trim()) {
+      const Customer = require("../models/Customer");
+      const existing = await Customer.getByPhone(String(customerPhone).trim());
+      if (existing) resolvedCustomerId = String(existing._id);
+    }
+
+    const result = await Coupon.findValidForOrder(
       code,
       orderAmount || 0,
       orderType || "dinein",
-      customerId,
+      resolvedCustomerId,
       context || "pos"
     );
 
-    if (!coupon) {
+    if (!result.coupon) {
       return res.status(404).json({
         success: false,
-        message: "Invalid or expired coupon",
+        message: result.reason || "Invalid or expired coupon",
       });
     }
 
-    const discount = coupon.calculateDiscount(orderAmount || 0);
+    // Public website coupons must clear the same admin-configurable promo floor
+    // enforced by the estimate and order-creation flows, so a coupon is never
+    // reported as valid below the floor. POS/in-store coupons are not subject
+    // to this restriction.
+    if (context === "online") {
+      const { checkPromoFloor } = require("../utils/promo");
+      const floor = await checkPromoFloor(orderAmount || 0);
+      if (!floor.eligible) {
+        return res.status(400).json({
+          success: false,
+          message: floor.reason,
+        });
+      }
+    }
+
+    const discount = result.coupon.calculateDiscount(orderAmount || 0, parsedItems);
 
     return res.status(200).json({
       success: true,
       coupon: {
-        _id: coupon._id,
-        code: coupon.code,
-        name: coupon.name,
-        type: coupon.type,
-        value: coupon.value,
-        maxDiscount: coupon.maxDiscount,
+        _id: result.coupon._id,
+        code: result.coupon.code,
+        name: result.coupon.name,
+        type: result.coupon.type,
+        value: result.coupon.value,
+        maxDiscount: result.coupon.maxDiscount,
+        buyCount: result.coupon.buyCount,
         discount,
       },
     });
@@ -138,6 +176,7 @@ const createCoupon = async (req, res) => {
       type,
       value,
       maxDiscount,
+      buyCount,
       minOrderAmount,
       applicableOrderTypes,
       applicableCategories,
@@ -195,6 +234,7 @@ const createCoupon = async (req, res) => {
       type,
       value: numericValue,
       maxDiscount: maxDiscount ? Number(maxDiscount) : null,
+      buyCount: buyCount ? Number(buyCount) : undefined,
       minOrderAmount: minOrderAmount ? Number(minOrderAmount) : 0,
       applicableOrderTypes: Array.isArray(applicableOrderTypes) ? applicableOrderTypes : ["dinein", "takeaway", "delivery"],
       applicableCategories: Array.isArray(applicableCategories) ? applicableCategories : [],
@@ -283,7 +323,7 @@ const updateCoupon = async (req, res) => {
     }
 
     const allowedUpdates = [
-      "name", "description", "type", "value", "maxDiscount", "minOrderAmount",
+      "name", "description", "type", "value", "maxDiscount", "buyCount", "minOrderAmount",
       "applicableOrderTypes", "applicableCategories", "applicableItems",
       "excludedCategories", "excludedItems", "usageLimit", "usageLimitPerCustomer",
       "validFrom", "validUntil", "isActive", "firstOrderOnly", "customerTags",

@@ -77,6 +77,18 @@ const attachWebsiteUser = async (req, res, next) => {
   }
 };
 
+// Resolves an existing customer id from a phone number (used to feed
+// customer-state-dependent coupon checks: first order, tags, per-customer
+// usage). A phone with no matching record represents a brand-new customer, so
+// we return null (coupon checks then treat them as a first-time, tag-less
+// customer). We never create a customer record just from a preview/validate.
+const resolveCustomerIdByPhone = async (phone) => {
+  if (!phone || !String(phone).trim()) return null;
+  const Customer = require("../models/Customer");
+  const existing = await Customer.getByPhone(String(phone).trim());
+  return existing ? String(existing._id) : null;
+};
+
 // Validates cart items against the menu catalogue and rebuilds them with
 // authoritative data (name, price, isVeg, taxRate, category, modifier prices).
 const validateAndBuildItems = async (items) => {
@@ -91,7 +103,7 @@ const validateAndBuildItems = async (items) => {
     .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
 
   const dbItems = await MenuItem.find({ _id: { $in: ids } })
-    .populate("category", "name")
+    .populate("category", "_id name")
     .lean();
   const dbMap = new Map(dbItems.map((item) => [String(item._id), item]));
 
@@ -143,6 +155,7 @@ const validateAndBuildItems = async (items) => {
       qty,
       isVeg: dbItem.isVeg,
       taxRate: dbItem.taxRate || 0,
+      categoryId: dbItem.category?._id || null,
       category: dbItem.category?.name || "",
       modifiers,
       notes: typeof raw.notes === "string" ? raw.notes.trim() : "",
@@ -223,7 +236,8 @@ const validatePublicOrder = async (req, res, next) => {
     let couponDiscount = 0;
     const couponCode = req.body.couponCode;
     if (couponCode && String(couponCode).trim()) {
-      const couponResult = await applyCoupon(String(couponCode).trim(), subtotal, orderType, null, "online");
+      const customerId = await resolveCustomerIdByPhone(req.body.customerPhone);
+      const couponResult = await applyCoupon(String(couponCode).trim(), subtotal, orderType, customerId, "online", cleanItems);
       couponDiscount = couponResult.discount;
     }
     const finalOrderValue = subtotal - couponDiscount;
@@ -314,17 +328,20 @@ const validatePublicOrder = async (req, res, next) => {
 // so the website can show an authoritative total before placing an order.
 const getOrderEstimate = async (req, res) => {
   try {
-    const { orderType = "takeaway", couponCode, deliveryAddress } = req.body;
+    const { orderType = "takeaway", couponCode, deliveryAddress, customerPhone } = req.body;
 
     const cleanItems = await validateAndBuildItems(req.body.items);
     const subtotal = cleanItems.reduce((sum, item) => sum + item.price * item.qty, 0);
 
     let couponDiscount = 0;
     let coupon = null;
+    let couponReason = null;
     if (couponCode && String(couponCode).trim()) {
-      const result = await applyCoupon(String(couponCode).trim(), subtotal, orderType, null, "online");
+      const customerId = await resolveCustomerIdByPhone(customerPhone);
+      const result = await applyCoupon(String(couponCode).trim(), subtotal, orderType, customerId, "online", cleanItems);
       couponDiscount = result.discount;
       coupon = result.coupon;
+      couponReason = result.reason;
     }
 
     const isInterState =
@@ -374,6 +391,7 @@ const getOrderEstimate = async (req, res) => {
         coupon: coupon
           ? { code: coupon.code, name: coupon.name, discount: Math.round(couponDiscount * 100) / 100 }
           : null,
+        couponReason,
         tax: totalTax,
         cgst,
         sgst,

@@ -49,18 +49,23 @@ const createStubs = () => {
   const User = {};
 
   // Minimal in-memory coupon that returns a flat ₹100 coupon for any code.
+  // findValidForOrder now resolves to { coupon, reason } so orderController /
+  // publicRoutes can surface eligibility reasons to the caller.
   const Coupon = {
     findValidForOrder: async (code) =>
       code
         ? {
-            code,
-            name: "Test Promo",
-            type: "flat",
-            value: 100,
-            maxDiscount: 100,
-            calculateDiscount: (amt) => Math.min(100, Number(amt)),
+            coupon: {
+              code,
+              name: "Test Promo",
+              type: "flat",
+              value: 100,
+              maxDiscount: 100,
+              calculateDiscount: (amt) => Math.min(100, Number(amt)),
+            },
+            reason: null,
           }
-        : null,
+        : { coupon: null, reason: "Invalid or expired coupon" },
   };
 
   stubModule(SETTINGS_MODEL, Settings);

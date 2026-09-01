@@ -4,6 +4,7 @@ const Payment = require("../models/Payment");
 const {
   markPaymentFailed,
   deductInventoryForOrder,
+  settleAdditionalPayment,
 } = require("./paymentController");
 
 // Cashfree webhook events that affect the restaurant order.
@@ -69,6 +70,76 @@ const settleLedger = async (order, cashfreeOrderId, cashfreePaymentId) => {
   }
 };
 
+// Resolves an order by an incoming Cashfree order_id. The id may belong to
+// either the original full-order Cashfree order (cashfreeOrderId) or the
+// separate additional-payment Cashfree order (cashfreeAdditionalOrderId).
+// Returns { order, isAdditional } or null when no order matches either field.
+// This lookup is deliberately scoped to exactly those two fields.
+const resolveOrderByCashfreeId = async (cashfreeId) => {
+  const order = await Order.findOne({
+    $or: [{ cashfreeOrderId: cashfreeId }, { cashfreeAdditionalOrderId: cashfreeId }],
+  });
+  if (!order) return null;
+  const isAdditional = !!(
+    order.cashfreeAdditionalOrderId && order.cashfreeAdditionalOrderId === cashfreeId
+  );
+  return { order, isAdditional };
+};
+
+// Settles an additional-payment SUCCESS that arrived via webhook. Uses the SAME
+// shared atomic settlement + ledger logic as the browser verify path, so a
+// concurrent or already-settled additional payment can never be charged or
+// ledgered twice.
+const handleAdditionalPaymentSuccess = async (eventPayload) => {
+  const paymentEntity = eventPayload?.data?.payment;
+  if (!paymentEntity?.cf_payment_id || !paymentEntity.order_id) {
+    console.error("CASHFREE ADDITIONAL WEBHOOK: payment entity missing");
+    return false;
+  }
+
+  const cashfreeOrderId = paymentEntity.order_id;
+  const order = await Order.findOne({ cashfreeAdditionalOrderId: cashfreeOrderId });
+  if (!order) {
+    console.error("CASHFREE ADDITIONAL WEBHOOK: no order found for", cashfreeOrderId);
+    return false;
+  }
+
+  if (["cancelled", "refunded"].includes(order.orderStatus)) {
+    return false;
+  }
+
+  // Already settled (or nothing due) - never re-settle a cleared delta.
+  if (Number(order.additionalAmountDue || 0) <= 0) {
+    return false;
+  }
+
+  // Validate against server-side additionalAmountDue - never trust the amount
+  // carried in the webhook/browser as authority.
+  const expectedAmount = Math.round((Number(order.additionalAmountDue) || 0) * 100) / 100;
+  const reportedAmount =
+    paymentEntity.order_amount ?? paymentEntity.payment_amount;
+  if (Number(reportedAmount) !== expectedAmount) {
+    console.error("CASHFREE ADDITIONAL WEBHOOK: amount mismatch for order", order.orderNumber);
+    return false;
+  }
+  if (paymentEntity.payment_currency !== "INR") {
+    console.error("CASHFREE ADDITIONAL WEBHOOK: currency mismatch for order", order.orderNumber);
+    return false;
+  }
+  if (paymentEntity.payment_status !== "SUCCESS") {
+    console.error("CASHFREE ADDITIONAL WEBHOOK: payment not successful for order", order.orderNumber);
+    return false;
+  }
+
+  try {
+    const result = await settleAdditionalPayment(order, paymentEntity, cashfreeOrderId);
+    return result.status === "settled";
+  } catch (error) {
+    console.error("CASHFREE ADDITIONAL WEBHOOK SETTLEMENT ERROR:", error.message);
+    return false;
+  }
+};
+
 const handlePaymentSuccess = async (eventPayload) => {
   const paymentEntity = eventPayload?.data?.payment;
   const orderEntity = eventPayload?.data?.order || {};
@@ -80,9 +151,19 @@ const handlePaymentSuccess = async (eventPayload) => {
   const cashfreePaymentId = String(paymentEntity.cf_payment_id);
   const cashfreeOrderId = paymentEntity.order_id;
 
-  const order = await Order.findOne({ cashfreeOrderId });
-  if (!order) {
+  const resolved = await resolveOrderByCashfreeId(cashfreeOrderId);
+  if (!resolved) {
     console.error("CASHFREE WEBHOOK: no order found for cashfree order", cashfreeOrderId);
+    return;
+  }
+  const { order } = resolved;
+
+  // The additional-payment Cashfree order is a separate, dedicated order and is
+  // reconciled here so that a paid delta is settled even when the browser never
+  // completes verifyAdditionalCashfreePayment. The original full-order webhook
+  // path below is unchanged.
+  if (resolved.isAdditional) {
+    await handleAdditionalPaymentSuccess(eventPayload);
     return;
   }
 
@@ -162,9 +243,17 @@ const handlePaymentFailed = async (eventPayload) => {
     return;
   }
 
-  const order = await Order.findOne({ cashfreeOrderId: paymentEntity.order_id });
-  if (!order) {
+  const resolved = await resolveOrderByCashfreeId(paymentEntity.order_id);
+  if (!resolved) {
     console.error("CASHFREE WEBHOOK: no order found for cashfree order", paymentEntity.order_id);
+    return;
+  }
+  const { order } = resolved;
+
+  // A failed event for the additional-payment Cashfree order does NOT fail the
+  // whole order: the original payment is still valid and the delta remains due,
+  // so we leave the order state untouched.
+  if (resolved.isAdditional) {
     return;
   }
 

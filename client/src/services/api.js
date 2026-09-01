@@ -129,6 +129,7 @@ export const settingsAPI = {
   initialize: () => api.get("/settings/init"),
   uploadMedia: (formData, onProgress) =>
     api.post("/settings/media", formData, {
+      headers: { "Content-Type": false },
       onUploadProgress: (e) => onProgress && onProgress(e),
     }),
   removeMedia: (type) => api.delete("/settings/media", { data: { type } }),

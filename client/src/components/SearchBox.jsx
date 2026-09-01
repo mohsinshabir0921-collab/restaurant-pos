@@ -1,6 +1,6 @@
 import { IconSearch } from "./icons";
 
-export default function SearchBox({ value, onChange, placeholder = "Search…", inputRef, ariaLabel }) {
+export default function SearchBox({ value, onChange, placeholder = "Search…", inputRef, ariaLabel, onKeyDown, onBlur }) {
   return (
     <div className="pos-search">
       <IconSearch size={15} className="pos-search-icon" />
@@ -11,6 +11,8 @@ export default function SearchBox({ value, onChange, placeholder = "Search…", 
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={onBlur}
         aria-label={ariaLabel || placeholder}
       />
       {value ? (

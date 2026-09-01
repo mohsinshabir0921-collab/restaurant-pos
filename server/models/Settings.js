@@ -79,6 +79,19 @@ const defaultSettings = [
   { key: "whatsapp_enabled", value: false, description: "Enable WhatsApp notifications", group: "notifications" },
   { key: "email_enabled", value: false, description: "Enable email notifications", group: "notifications" },
   { key: "cashfree_client_id", value: process.env.CASHFREE_CLIENT_ID || "", description: "Cashfree Client ID for online payments", group: "payment" },
+  {
+    key: "payment_methods",
+    value: [
+      { id: "cash", label: "Cash", description: "Pay by physical cash", enabled: true },
+      { id: "upi", label: "UPI", description: "Pay online via UPI", enabled: true },
+      { id: "card", label: "Card", description: "Pay online via card", enabled: true },
+      { id: "wallet", label: "Wallet", description: "Pay via digital wallet", enabled: true },
+      { id: "cod", label: "Cash on Delivery", description: "Pay cash on delivery", enabled: true },
+    ],
+    description: "Configurable payment methods available for the store (JSON array)",
+    group: "payment",
+    isPublic: true,
+  },
 ];
 
 settingsSchema.statics.initializeDefaults = async function () {

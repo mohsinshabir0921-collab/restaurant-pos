@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
 import { useRef } from "react";
-import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
-import { useDeviceTier } from "../../hooks/useDeviceTier";
+import { motion, useReducedMotion } from "framer-motion";
 import Magnetic from "../Magnetic";
 
 const HERO_EASE = [0.16, 1, 0.3, 1];
 
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+const DEFAULT_SUB = "Authentic recipes, finest ingredients, and the warmth of a table worth returning to.";
 
 const fmtTime = (time) => {
   if (!time) return "";
@@ -24,18 +25,20 @@ const heroContainer = {
 };
 
 const heroItem = {
-  hidden: { opacity: 0, y: 26 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: HERO_EASE } },
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: HERO_EASE } },
 };
 
 /**
- * Hero — "Warm Cinematic Editorial".
- * Full-bleed food photography as the dominant, integrated element (no floating
- * sticker / glowing cutout). Strong dark gradient overlay keeps copy readable.
- * Content hierarchy: eyebrow -> headline -> supporting line -> CTAs.
- * Motion reuses the existing framer-motion Reveal-style stagger. The subtle
- * scroll parallax is disabled under prefers-reduced-motion AND on coarse
- * pointers (touch), so mobile stays calm and never reproduces desktop parallax.
+ * Hero — "Flavours Worth Remembering".
+ * Left: uppercase gold eyebrow, elegant serif headline, supporting copy, dual
+ * CTAs and a quiet trust row.
+ * When an uploaded hero video or image is configured it becomes the full-bleed
+ * background, with a subtle dark overlay/scrim keeping copy readable and the
+ * decorative CSS/SVG composition removed. When neither is configured, the
+ * standalone decorative brand composition is shown instead.
+ * Fonts: Fraunces (serif display) + Work Sans (sans). Motion is a single
+ * subtle opacity reveal, disabled under prefers-reduced-motion.
  */
 export default function Hero({
   restaurantName,
@@ -43,55 +46,62 @@ export default function Hero({
   description,
   openingHours,
   orderNote,
+  heroImageUrl,
+  heroVideoUrl,
 }) {
   const heroRef = useRef(null);
   const reduce = useReducedMotion();
-  const { mobile } = useDeviceTier();
-
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ["start start", "end start"],
-  });
-  const mediaY = useTransform(scrollYProgress, [0, 1], [0, 110]);
-  const mediaScale = useTransform(scrollYProgress, [0, 1], [1.08, 1.18]);
 
   const todayKey = DAY_KEYS[new Date().getDay()];
   const today = openingHours?.[todayKey];
   const openToday =
     today && today.open && today.close ? `Open today ${fmtTime(today.open)} – ${fmtTime(today.close)}` : null;
 
-  // Fixed, curated food visual for the cinematic hero. A dedicated high-res
-  // opaque food photo whose dark surround merges into the charcoal scene, so
-  // the dish reads as "in scene" rather than a floating sticker.
-  const heroImage = "/images/menu/scroll-feast-pizza.png";
+  const hasMedia = !!(heroVideoUrl || heroImageUrl);
 
-  // Coarse/mobile pointers get no parallax — the food stays calm and content
-  // stays centered, and it never mimics the desktop drift. Same for reduced
-  // motion. Fine-pointer desktop keeps the subtle scroll parallax.
-  const canParallax = !reduce && !mobile;
+  const metaRow = [
+    "Traditional flavours",
+    "Crafted fresh",
+    openToday || "Delivered locally",
+  ].filter(Boolean);
 
   return (
-    <section className="hp-hero" ref={heroRef}>
-      <motion.div
-        className="hp-hero-media"
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          inset: 0,
-          zIndex: 0,
-          ...(canParallax ? { y: mediaY, scale: mediaScale } : {}),
-        }}
-      >
-        <img
-          className="hp-hero-media-el"
-          src={heroImage}
-          alt=""
-          fetchPriority="high"
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+    <section className={hasMedia ? "hp-hero hp-hero--media" : "hp-hero"} ref={heroRef}>
+      {heroVideoUrl ? (
+        <video
+          className="hp-hero-media"
+          src={heroVideoUrl}
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-hidden="true"
         />
-      </motion.div>
+      ) : heroImageUrl ? (
+        <img
+          className="hp-hero-media"
+          src={heroImageUrl}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : null}
 
-      <div className="hp-hero-scrim" aria-hidden="true" />
+      {hasMedia && <div className="hp-hero-scrim" aria-hidden="true" />}
+
+      {/* Standalone decorative brand composition — only shown when there is no
+          uploaded hero media, as a fallback design. Pure CSS/SVG, no image. */}
+      {!hasMedia && (
+        <motion.div className="hp-hero-visual" aria-hidden="true">
+          <span className="hp-hero-visual-ambient" />
+          <span className="hp-hero-visual-jaali" />
+          <span className="hp-hero-visual-arch" />
+          <span className="hp-hero-visual-mandala" />
+          <span className="hp-hero-visual-frame" />
+          <span className="hp-hero-visual-corner hp-hero-visual-corner-tl" />
+          <span className="hp-hero-visual-corner hp-hero-visual-corner-br" />
+          <span className="hp-hero-visual-label">Kashmir · Tradition</span>
+        </motion.div>
+      )}
 
       <motion.div
         className="container hp-hero-content"
@@ -100,39 +110,41 @@ export default function Hero({
         animate="show"
       >
         <motion.p className="hp-hero-eyebrow" variants={heroItem}>
-          <span className="hp-hero-eyebrow-rule" />
-          Restaurant · Est. 2020
+          <span className="hp-hero-eyebrow-rule" aria-hidden="true" />
+          <span>Kashmiri Cuisine · Est. 2020</span>
         </motion.p>
+
         <motion.h1 className="hp-hero-title" variants={heroItem}>
-          {restaurantName}
+          Flavours Worth
+          <br />
+          <em>Remembering</em>
         </motion.h1>
-        {tagline ? (
-          <motion.p className="hp-hero-tagline" variants={heroItem}>
-            {tagline}
-          </motion.p>
-        ) : null}
-        {description ? (
-          <motion.p className="hp-hero-sub" variants={heroItem}>
-            {description}
-          </motion.p>
-        ) : null}
-        {(orderNote || openToday) && (
-          <motion.p className="hp-hero-meta" variants={heroItem}>
-            {[orderNote, openToday].filter(Boolean).join(" · ")}
-          </motion.p>
-        )}
+
+        <motion.p className="hp-hero-sub" variants={heroItem}>
+          {description?.trim() || DEFAULT_SUB}
+        </motion.p>
+
         <motion.div className="hp-hero-actions" variants={heroItem}>
           <Magnetic>
-            <Link to="/checkout" className="btn btn-light btn-lg hp-hero-cta">
+            <Link to="/checkout" className="btn btn-light btn-lg hp-hero-cta hp-hero-cta-primary">
               Order Now
             </Link>
           </Magnetic>
           <Magnetic>
-            <Link to="/menu" className="btn btn-outline-light btn-lg hp-hero-cta">
+            <Link to="/menu" className="btn btn-outline-light btn-lg hp-hero-cta hp-hero-cta-secondary">
               Explore Menu
             </Link>
           </Magnetic>
         </motion.div>
+
+        <motion.ul className="hp-hero-trust" variants={heroItem} aria-label="Restaurant details">
+          {metaRow.map((item) => (
+            <li key={item} className="hp-hero-trust-item">
+              <span className="hp-hero-trust-sep" aria-hidden="true" />
+              {item}
+            </li>
+          ))}
+        </motion.ul>
       </motion.div>
     </section>
   );

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { websiteAPI } from "../services/api";
+import { usePayment } from "../hooks/useOrder";
 import { useWebsite } from "../context/WebsiteContext";
 import DeliveryMap from "../../components/DeliveryMap";
 import { formatPrice } from "../components/common";
@@ -173,9 +174,56 @@ function TrackOrderContent({ orderNumber, restaurantName }) {
   const [verified, setVerified] = useState(false);
   const [tracking, setTracking] = useState(null);
   const [error, setError] = useState("");
+  const [payState, setPayState] = useState("idle"); // idle | processing | success | error
+  const [payMessage, setPayMessage] = useState("");
+
+  const { openAdditionalCashfree } = usePayment();
 
   const status = tracking?.deliveryStatus || tracking?.orderStatus || null;
   const terminal = TERMINAL_STATUSES.includes(status);
+  const additionalDue = Number(tracking?.additionalAmountDue || 0);
+
+  const handlePayAdditional = async () => {
+    if (!phone.trim()) return;
+    setPayState("processing");
+    setPayMessage("");
+    try {
+      const res = await websiteAPI.createAdditionalCashfreeOrder(orderNumber, phone.trim());
+      if (!res.data?.success) {
+        setPayState("error");
+        setPayMessage(res.data?.message || "Could not start the payment");
+        return;
+      }
+      await new Promise((resolve) => {
+        openAdditionalCashfree({
+          orderId: res.data.orderId,
+          phone: phone.trim(),
+          paymentSessionId: res.data.paymentSessionId,
+          environment: res.data.environment,
+          cashfreeOrderId: res.data.cashfreeOrderId,
+          onSuccess: () => {
+            setPayState("success");
+            setPayMessage("Payment received. Your order is all settled.");
+            resolve();
+          },
+          onFailure: (message) => {
+            setPayState("error");
+            setPayMessage(message || "Payment could not be completed");
+            resolve();
+          },
+          onPending: (message) => {
+            setPayState("error");
+            setPayMessage(message || "We could not confirm the payment right now.");
+            resolve();
+          },
+        });
+      });
+      await poll();
+    } catch (err) {
+      setPayState("error");
+      setPayMessage(err?.response?.data?.message || "Could not start the payment");
+    }
+  };
 
   const verify = useCallback(async () => {
     setSubmitting(true);
@@ -317,6 +365,29 @@ function TrackOrderContent({ orderNumber, restaurantName }) {
           <span className="track-value">{restaurantName || "Our restaurant"}</span>
         </div>
       </div>
+
+      {additionalDue > 0 && (
+        <div className="track-additional-pay">
+          <div className="track-additional-info">
+            <span className="track-label">Additional payment due</span>
+            <strong className="track-additional-amount">{formatPrice(additionalDue)}</strong>
+          </div>
+          {payState === "success" ? (
+            <p className="track-additional-success">{payMessage}</p>
+          ) : (
+            <>
+              <button
+                className="btn btn-primary"
+                onClick={handlePayAdditional}
+                disabled={payState === "processing"}
+              >
+                {payState === "processing" ? "Processing…" : "Pay now"}
+              </button>
+              {payState === "error" && <p className="track-error">{payMessage}</p>}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="track-actions">
         <button className="btn btn-ghost" onClick={() => setVerified(false)}>

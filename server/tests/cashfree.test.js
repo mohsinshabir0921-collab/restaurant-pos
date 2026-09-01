@@ -69,6 +69,11 @@ const createStubs = () => {
       cashfreeOrderId: data.cashfreeOrderId ?? null,
       cashfreePaymentId: data.cashfreePaymentId ?? null,
       cashfreePaymentStatus: data.cashfreePaymentStatus ?? null,
+      cashfreeAdditionalOrderId: data.cashfreeAdditionalOrderId ?? null,
+      cashfreeAdditionalPaymentId: data.cashfreeAdditionalPaymentId ?? null,
+      additionalAmountDue: data.additionalAmountDue ?? 0,
+      refundAmountDue: data.refundAmountDue ?? 0,
+      additionalPaymentInProgress: data.additionalPaymentInProgress ?? false,
       paidAt: data.paidAt ?? null,
       inventoryDeducted: data.inventoryDeducted ?? false,
       createdBy: data.createdBy ?? "user_1",
@@ -96,16 +101,36 @@ const createStubs = () => {
     return doc;
   };
 
+  const matchesFilter = (o, filter) =>
+    Object.entries(filter).every(([k, v]) => {
+      if (k === "$or") {
+        return v.some((sub) => matchesFilter(o, sub));
+      }
+      // object-valued conditions (e.g. { $gt }, { $ne }) are compared by type,
+      // not deep equality, so handle them explicitly here.
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        if (v.$gt !== undefined) return Number(o[k]) > v.$gt;
+        if (v.$ne !== undefined) return o[k] !== v.$ne;
+        return false;
+      }
+      return o[k] === v;
+    });
+
   const Order = {
-    findOne: async (filter) =>
-      store.orders.find((o) =>
-        Object.entries(filter).every(([k, v]) => o[k] === v)
-      ) || null,
-    findById: async (id) =>
-      store.orders.find((o) => String(o._id) === String(id)) || null,
+    findOne: async (filter) => store.orders.find((o) => matchesFilter(o, filter)) || null,
+    findById: (id) => {
+      const order = store.orders.find((o) => String(o._id) === String(id)) || null;
+      const query = {
+        populate: () => query,
+        lean: async () => order,
+        then: (resolve, reject) => Promise.resolve(order).then(resolve, reject),
+      };
+      return query;
+    },
     findOneAndUpdate: async (filter, update, opts = {}) => {
       const doc = store.orders.find((o) => String(o._id) === String(filter._id));
       if (!doc) return null;
+      if (!matchesFilter(doc, filter)) return null;
       const claim = filter.inventoryDeducted && filter.inventoryDeducted.$ne === true;
       if (claim) {
         if (doc.inventoryDeducted === true) return null;
@@ -115,7 +140,12 @@ const createStubs = () => {
       Object.assign(doc, update.$set || {});
       return doc;
     },
-    updateOne: async () => ({}),
+    updateOne: async (filter, update) => {
+      const doc = store.orders.find((o) => String(o._id) === String(filter._id));
+      if (!doc) return { matchedCount: 0, modifiedCount: 0 };
+      Object.assign(doc, update.$set || {});
+      return { matchedCount: 1, modifiedCount: 1 };
+    },
     create: async (data) => {
       const doc = makeOrderDoc(data);
       store.orders.push(doc);
@@ -167,6 +197,14 @@ const createStubs = () => {
       };
       store.payments.push(rec);
       return rec;
+    },
+    find: (filter) => {
+      const rows = store.payments.filter((p) =>
+        Object.entries(filter).every(([k, v]) => p[k] === v)
+      );
+      return {
+        then: (resolve, reject) => Promise.resolve(rows).then(resolve, reject),
+      };
     },
   };
 
@@ -281,6 +319,11 @@ const seedOrder = (stubs, overrides = {}) => {
           cashfreeOrderId: null,
           cashfreePaymentId: null,
           cashfreePaymentStatus: null,
+          cashfreeAdditionalOrderId: null,
+          cashfreeAdditionalPaymentId: null,
+          additionalAmountDue: 0,
+          refundAmountDue: 0,
+          additionalPaymentInProgress: false,
           paidAt: null,
           inventoryDeducted: false,
           createdBy: "user_1",
@@ -725,6 +768,240 @@ test("11. verify rejects on a Cashfree order ID mismatch", async () => {
 
   assert.equal(res._status, 400);
   assert.equal(res._body.message, "Cashfree order ID mismatch");
+});
+
+// ---------------------------------------------------------------------------
+// Additional-payment webhook reconciliation + idempotency
+// ---------------------------------------------------------------------------
+
+// Seeds a previously-paid order that was edited to increase the total. The
+// original 500 payment already exists as a paid ledger row; the delta owed is
+// `additionalAmountDue` and a dedicated Cashfree additional order has been
+// created (cashfreeAdditionalOrderId = `pos_<orderId>_adj`).
+const seedAdditionalOrder = (stubs, overrides = {}) => {
+  stubs.Payment.create({
+    order: "ord_1",
+    amount: 500,
+    method: "upi",
+    gateway: "cashfree",
+    status: "paid",
+    collectedBy: "user_1",
+    collectedAt: new Date(),
+    metadata: { additionalPayment: false },
+  });
+  const order = seedOrder(stubs, {
+    paymentStatus: "paid",
+    orderStatus: "completed",
+    cashfreeOrderId: "pos_ord_1",
+    cashfreePaymentId: "pay_orig",
+    total: 750,
+    additionalAmountDue: 250,
+    cashfreeAdditionalOrderId: "pos_ord_1_adj",
+    ...overrides,
+  });
+  return order;
+};
+
+const additionalPaidRows = (stubs) =>
+  stubs.store.payments.filter(
+    (p) => p.status === "paid" && p.metadata && p.metadata.additionalPayment === true
+  );
+
+// A successful payment captured against the additional Cashfree order, as the
+// browser verify path would observe it via cashfree.fetchOrderPayments.
+const seedAdditionalCapturedPayment = (stubs, overrides = {}) => {
+  stubs.store.capturedPayments.push({
+    cf_payment_id: "pay_adj",
+    order_id: "pos_ord_1_adj",
+    order_amount: 250,
+    payment_status: "SUCCESS",
+    payment_amount: 250,
+    payment_currency: "INR",
+    ...overrides,
+  });
+};
+
+test("A. additional-payment SUCCESS webhook settles the delta (browser never verifies)", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+  assert.equal(order.additionalAmountDue, 250);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_1_adj", "pay_adj", { order_amount: 250, payment_amount: 250 })
+  );
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  assert.equal(status, 200);
+  assert.equal(order.additionalAmountDue, 0, "delta cleared");
+  assert.equal(order.additionalPaymentInProgress, false);
+  assert.equal(order.paymentStatus, "paid");
+  assert.equal(order.cashfreeAdditionalPaymentId, "pay_adj");
+  assert.equal(additionalPaidRows(stubs).length, 1, "one additional ledger row");
+  assert.equal(additionalPaidRows(stubs)[0].amount, 250);
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 2);
+});
+
+test("B. browser verification alone settles the additional delta", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+  seedAdditionalCapturedPayment(stubs);
+
+  const res = makeRes();
+  await stubs.paymentController.verifyAdditionalCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_1_adj", cfPaymentId: "pay_adj" }),
+    res
+  );
+
+  assert.equal(res._status, 200);
+  assert.equal(res._body.success, true);
+  assert.equal(order.additionalAmountDue, 0);
+  assert.equal(order.additionalPaymentInProgress, false);
+  assert.equal(additionalPaidRows(stubs).length, 1);
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 2);
+});
+
+test("C. browser then webhook settle the delta exactly once", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+  seedAdditionalCapturedPayment(stubs);
+
+  const res = makeRes();
+  await stubs.paymentController.verifyAdditionalCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_1_adj", cfPaymentId: "pay_adj" }),
+    res
+  );
+  assert.equal(res._status, 200);
+  assert.equal(additionalPaidRows(stubs).length, 1);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_1_adj", "pay_adj", { order_amount: 250, payment_amount: 250 })
+  );
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  assert.equal(status, 200);
+  assert.equal(additionalPaidRows(stubs).length, 1, "webhook observed already collected");
+  assert.equal(order.additionalAmountDue, 0);
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 2);
+});
+
+test("D. webhook then browser settle the delta exactly once", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_1_adj", "pay_adj", { order_amount: 250, payment_amount: 250 })
+  );
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+  assert.equal(status, 200);
+  assert.equal(additionalPaidRows(stubs).length, 1);
+  assert.equal(order.additionalAmountDue, 0);
+
+  const res = makeRes();
+  await stubs.paymentController.verifyAdditionalCashfreePayment(
+    makeReq({ orderId: "ord_1", cashfreeOrderId: "pos_ord_1_adj", cfPaymentId: "pay_adj" }),
+    res
+  );
+  assert.equal(res._status, 200);
+  assert.equal(res._body.message, "Additional payment already collected");
+  assert.equal(additionalPaidRows(stubs).length, 1, "browser observed already collected");
+});
+
+test("E. additional webhook with an amount mismatch does not settle", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_1_adj", "pay_adj", { order_amount: 100, payment_amount: 100 })
+  );
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  assert.equal(status, 200);
+  assert.equal(order.additionalAmountDue, 250, "delta left untouched");
+  assert.equal(additionalPaidRows(stubs).length, 0, "no additional ledger row created");
+});
+
+test("F. additional webhook for an unknown additional order id is a no-op", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_UNKNOWN_adj", "pay_x", { order_amount: 250, payment_amount: 250 })
+  );
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  assert.equal(status, 200);
+  assert.equal(order.additionalAmountDue, 250);
+  assert.equal(additionalPaidRows(stubs).length, 0);
+});
+
+test("G. additional PAYMENT_FAILED webhook never downgrades the paid order", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+
+  const rawBody = JSON.stringify(failedPayload("pos_ord_1_adj", "pay_adj"));
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  assert.equal(status, 200);
+  assert.equal(order.paymentStatus, "paid", "order stays paid");
+  assert.equal(order.additionalAmountDue, 250, "delta remains due");
+  assert.equal(stubs.store.payments.filter((p) => p.status === "failed").length, 0);
+});
+
+test("H. duplicate additional SUCCESS webhook settles exactly once", async () => {
+  const stubs = freshLoad();
+  const order = seedAdditionalOrder(stubs);
+
+  const rawBody = JSON.stringify(
+    successPayload("pos_ord_1_adj", "pay_adj", { order_amount: 250, payment_amount: 250 })
+  );
+  const app = stubs.buildApp();
+  const sig = signWebhook(rawBody);
+
+  const first = await postWebhook(app, { rawBody, signature: sig });
+  const second = await postWebhook(app, { rawBody, signature: sig });
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(additionalPaidRows(stubs).length, 1, "settled exactly once");
+  assert.equal(order.additionalAmountDue, 0);
+});
+
+test("I. regression: normal cashfreeOrderId success webhook is not treated as additional", async () => {
+  const stubs = freshLoad();
+  seedInventory(stubs);
+  seedOrder(stubs, { cashfreeOrderId: "pos_ord_1" });
+
+  const rawBody = JSON.stringify(successPayload("pos_ord_1", "pay_1"));
+  const { status } = await postWebhook(stubs.buildApp(), {
+    rawBody,
+    signature: signWebhook(rawBody),
+  });
+
+  const order = stubs.store.orders[0];
+  assert.equal(status, 200);
+  assert.equal(order.paymentStatus, "paid");
+  assert.equal(order.orderStatus, "confirmed");
+  assert.equal(stubs.store.deductions.length, 1, "normal full-order webhook still settles");
+  assert.equal(stubs.store.payments.filter((p) => p.status === "paid").length, 1);
+  assert.equal(order.cashfreeAdditionalOrderId, null);
 });
 
 // ---------------------------------------------------------------------------

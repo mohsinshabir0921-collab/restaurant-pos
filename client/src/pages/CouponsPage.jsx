@@ -20,6 +20,7 @@ export default function CouponsPage() {
     description: "",
     type: "percent",
     value: "",
+    buyCount: 1,
     maxDiscount: "",
     minOrderAmount: 0,
     applicableOrderTypes: ["dinein", "takeaway", "delivery"],
@@ -61,6 +62,7 @@ export default function CouponsPage() {
     const data = {
       ...formData,
       value: Number(formData.value),
+      buyCount: Number(formData.buyCount) || 1,
       maxDiscount: formData.maxDiscount ? Number(formData.maxDiscount) : null,
       minOrderAmount: Number(formData.minOrderAmount),
       usageLimit: formData.usageLimit ? Number(formData.usageLimit) : null,
@@ -96,6 +98,7 @@ export default function CouponsPage() {
         description: coupon.description || "",
         type: coupon.type || coupon.discountType || "percent",
         value: coupon.value ?? "",
+        buyCount: coupon.buyCount ?? 1,
         maxDiscount: coupon.maxDiscount || "",
         minOrderAmount: coupon.minOrderAmount ?? coupon.minOrderValue ?? 0,
         applicableOrderTypes: coupon.applicableOrderTypes?.length ? coupon.applicableOrderTypes : ["dinein", "takeaway", "delivery"],
@@ -121,6 +124,7 @@ export default function CouponsPage() {
         description: "",
         type: "percent",
         value: "",
+        buyCount: 1,
         maxDiscount: "",
         minOrderAmount: 0,
         applicableOrderTypes: ["dinein", "takeaway", "delivery"],
@@ -193,7 +197,7 @@ export default function CouponsPage() {
               <tr key={coupon._id}>
                 <td><strong>{coupon.code}</strong></td>
                 <td>{coupon.name}</td>
-                <td>{coupon.type === "percent" ? `${coupon.value}%` : formatCurrency(coupon.value)}</td>
+                <td>{coupon.type === "percent" ? `${coupon.value}%` : coupon.type === "buy_x_get_y" ? `Buy ${coupon.buyCount || 1} Get ${coupon.value || 1}` : formatCurrency(coupon.value)}</td>
                 <td>{coupon.type}</td>
                 <td>{coupon.maxDiscount ? formatCurrency(coupon.maxDiscount) : "No limit"}</td>
                 <td>{coupon.minOrderAmount ? formatCurrency(coupon.minOrderAmount) : "No minimum"}</td>
@@ -240,10 +244,23 @@ export default function CouponsPage() {
                     <option value="buy_x_get_y">Buy X Get Y</option>
                   </select>
                 </div>
-                <div className="form-group">
-                  <label>Value *</label>
-                  <input type="number" step="0.01" min="0" value={formData.value} onChange={e => setFormData(d => ({ ...d, value: e.target.value }))} required />
-                </div>
+                {formData.type === "buy_x_get_y" ? (
+                  <>
+                    <div className="form-group">
+                      <label>Buy (paid items) *</label>
+                      <input type="number" min="1" step="1" value={formData.buyCount} onChange={e => setFormData(d => ({ ...d, buyCount: e.target.value }))} required />
+                    </div>
+                    <div className="form-group">
+                      <label>Get (free items) *</label>
+                      <input type="number" min="1" step="1" value={formData.value} onChange={e => setFormData(d => ({ ...d, value: e.target.value }))} required />
+                    </div>
+                  </>
+                ) : (
+                  <div className="form-group">
+                    <label>Value *</label>
+                    <input type="number" step="0.01" min="0" value={formData.value} onChange={e => setFormData(d => ({ ...d, value: e.target.value }))} required />
+                  </div>
+                )}
                 <div className="form-group">
                   <label>Max Discount</label>
                   <input type="number" step="0.01" min="0" value={formData.maxDiscount} onChange={e => setFormData(d => ({ ...d, maxDiscount: e.target.value }))} />

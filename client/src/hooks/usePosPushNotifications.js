@@ -23,15 +23,28 @@ export const usePosPushNotifications = () => {
     }
   }, [user]);
 
+  // Reuse any existing push subscription regardless of which service worker
+  // registration (scope) it lives under. During the root -> /pos service
+  // worker migration a legacy subscription may still be registered under the
+  // old root-scoped worker; blindly subscribing on the current registration
+  // would create a second subscription and duplicate notifications.
+  const findExistingSubscription = useCallback(async () => {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const registration of registrations) {
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) return subscription;
+    }
+    return null;
+  }, []);
+
   const checkSubscription = useCallback(async () => {
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
+      const subscription = await findExistingSubscription();
       setIsSubscribed(!!subscription);
     } catch (error) {
       console.error('Error checking subscription:', error);
     }
-  }, []);
+  }, [findExistingSubscription]);
 
   const requestPermission = useCallback(async () => {
     if (!('Notification' in window)) {
@@ -70,15 +83,14 @@ export const usePosPushNotifications = () => {
 
     setLoading(true);
     try {
-      const registration = await navigator.serviceWorker.ready;
-      
-      // Reuse an existing subscription when one is already registered so a
-      // duplicate browser subscription is never created. The subscription is
-      // always re-saved to the backend (idempotent upsert) so the active DB
+      // Reuse an existing subscription (from any service worker registration)
+      // so a duplicate browser subscription is never created. The subscription
+      // is always re-saved to the backend (idempotent upsert) so the active DB
       // row matches the browser's current endpoint + keys.
-      let subscription = await registration.pushManager.getSubscription();
+      let subscription = await findExistingSubscription();
 
       if (!subscription) {
+        const registration = await navigator.serviceWorker.ready;
         // Convert VAPID key to Uint8Array
         const urlBase64ToUint8Array = (base64String) => {
           const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -108,22 +120,24 @@ export const usePosPushNotifications = () => {
     } finally {
       setLoading(false);
     }
-  }, [user, permission, requestPermission, saveSubscriptionToBackend]);
+  }, [user, permission, requestPermission, saveSubscriptionToBackend, findExistingSubscription]);
 
   const unsubscribe = useCallback(async () => {
     if (!user) return false;
 
     setLoading(true);
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      
-      if (subscription) {
-        const api = await import('../services/api').then(m => m.default);
-        await api.post('/push/unsubscribe', { endpoint: subscription.endpoint });
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        const subscription = await registration.pushManager.getSubscription();
 
-        await subscription.unsubscribe();
-        setIsSubscribed(false);
+        if (subscription) {
+          const api = await import('../services/api').then(m => m.default);
+          await api.post('/push/unsubscribe', { endpoint: subscription.endpoint });
+
+          await subscription.unsubscribe();
+          setIsSubscribed(false);
+        }
       }
       return true;
     } catch (error) {
