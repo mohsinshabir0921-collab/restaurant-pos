@@ -2,6 +2,17 @@ const Settings = require("../models/Settings");
 const storage = require("../storage/storageAdapter");
 const { handleError } = require("../utils/httpError");
 
+// Public origin for the stored media URL. In production (Render behind a TLS
+// proxy) Express sees X-Forwarded-Proto: https and the Host header, so the URL
+// persisted in MongoDB is a real public HTTPS URL — never localhost. Falls back
+// to the local API origin for tests / exact-listeners that omit these headers.
+function publicBaseUrl(req) {
+  const get = (header) => (typeof req?.get === "function" ? req.get(header) : req?.[header]);
+  const proto = ((get("x-forwarded-proto") || "").split(",")[0] || "http").trim();
+  const host = (get("host") || "").trim() || `localhost:${process.env.PORT || 5000}`;
+  return `${proto}://${host}`.replace(/\/$/, "");
+}
+
 const ALLOWED = {
   hero_image: {
     kind: "image",
@@ -56,6 +67,7 @@ const uploadMedia = async (req, res) => {
       key,
       buffer: req.file.buffer,
       contentType: req.file.mimetype,
+      baseUrl: publicBaseUrl(req),
     });
 
     await Settings.setValue(type, url);

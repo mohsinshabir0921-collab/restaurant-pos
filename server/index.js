@@ -50,9 +50,9 @@ const app = express();
 
 // Uploaded hero media (images/videos) is served from a different origin than
 // the public website (e.g. the Vite dev page on :5173 loads media from the
-// API on :5000, and production loads media from R2). Helmet's default
-// Cross-Origin-Resource-Policy: same-origin would block those cross-origin
-// media loads, so allow cross-origin embedding of resources.
+// API on :5000, and production loads media from the API server when R2 is not
+// configured). Helmet's default Cross-Origin-Resource-Policy: same-origin
+// would block those cross-origin media loads, so allow cross-origin embedding.
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
 // CORS: allow only configured client origins (CLIENT_URL, comma-separated).
@@ -100,9 +100,11 @@ app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 
 app.use(express.json());
 
-// In the local mock-storage backend uploaded hero media is written to
-// server/.uploads-mock and served back over HTTP so the public website can
-// load it in a browser. Production uses Cloudflare R2 and does not need this.
+// Uploaded hero media is written to server/.uploads-mock and served back over
+// HTTPS by this static route whenever R2 is not configured. express.static
+// sets correct MIME types and supports byte-range requests, so images and MP4
+// videos load and play in browsers. When R2 is configured, uploads live in the
+// bucket and this route is not needed.
 const storageAdapter = require("./storage/storageAdapter");
 if (!storageAdapter.isConfigured) {
   app.use("/uploads", express.static(storageAdapter.MOCK_DIR));

@@ -50,3 +50,6 @@ opencode.json.before-omniroute-fix
 # Server seed/test artifacts (hardcoded credentials / manual test payloads)
 server/seedAdmin.js
 server/order-test.json
+
+# Runtime uploaded hero media (server-backed storage) — never commit uploads
+server/.uploads-mock/

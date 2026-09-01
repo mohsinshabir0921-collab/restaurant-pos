@@ -4,10 +4,13 @@ const path = require("path");
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 
 // Provider-agnostic storage adapter.
-// Implementation: Cloudflare R2 (S3-compatible).
-// If R2 credentials are not configured, a local mock backend is used so the
-// app (and automated tests) can run without production credentials. The mock
-// never touches production storage.
+// Implementation: Cloudflare R2 (S3-compatible) when all R2_* env vars are
+// configured. Without R2 credentials the adapter uses server-backed storage:
+// uploaded files are written to server/.uploads-mock and served over HTTPS by
+// the Express /uploads static route (see index.js). The URL persisted in the
+// database is derived from the incoming request (X-Forwarded-Proto + Host) so
+// production stores a real public HTTPS URL — never localhost. STORAGE_PUBLIC_URL
+// overrides the public origin when the API is reachable on a different host.
 
 const cfg = {
   accountId: process.env.R2_ACCOUNT_ID,
@@ -33,16 +36,13 @@ if (isConfigured) {
 
 const MOCK_DIR = path.join(__dirname, "..", ".uploads-mock");
 
-// In the local/mock backend the uploaded files are served over HTTP by the
-// Express app (see index.js -> app.use("/uploads", express.static(MOCK_DIR))),
-// so the stored URL must be a normal browser-loadable origin, not a bespoke
-// scheme. Defaults to the API server's own origin on the configured port.
-// Override with STORAGE_PUBLIC_URL when the API is reachable on a different
-// host/port in a local setup.
-const MOCK_ORIGIN =
-  (process.env.STORAGE_PUBLIC_URL ||
-    `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, "");
-const MOCK_PREFIX = `${MOCK_ORIGIN}/uploads/`;
+// Fallback origin used only when the request context is unavailable (e.g.
+// tests that call uploadMedia directly) and STORAGE_PUBLIC_URL is not set.
+const DEFAULT_ORIGIN = `http://localhost:${process.env.PORT || 5000}`;
+
+// In server-backed mode the adapter only manages URLs this app created, i.e.
+// any http(s) origin that serves its /uploads path.
+const SERVER_UPLOAD_URL_RE = /^https?:\/\/[^/]+\/uploads\//;
 
 function extFromMime(mime, fallback) {
   const map = {
@@ -56,7 +56,7 @@ function extFromMime(mime, fallback) {
   return map[mime] || fallback;
 }
 
-async function upload({ key, buffer, contentType }) {
+async function upload({ key, buffer, contentType, baseUrl }) {
   if (isConfigured) {
     await s3.send(
       new PutObjectCommand({
@@ -68,11 +68,13 @@ async function upload({ key, buffer, contentType }) {
     );
     return { url: `${cfg.publicUrl}/${key}` };
   }
-  // Mock backend (no credentials configured)
+  // Server-backed storage (no R2 credentials configured): write the file to
+  // disk and publish it under the public /uploads route of the API server.
   const fp = path.join(MOCK_DIR, key);
   fs.mkdirSync(path.dirname(fp), { recursive: true });
   fs.writeFileSync(fp, buffer);
-  return { url: `${MOCK_PREFIX}${key}` };
+  const origin = (baseUrl || process.env.STORAGE_PUBLIC_URL || DEFAULT_ORIGIN).replace(/\/$/, "");
+  return { url: `${origin}/uploads/${key}` };
 }
 
 async function remove(key) {
@@ -86,12 +88,14 @@ async function remove(key) {
 
 function isManagedUrl(url) {
   if (!url || typeof url !== "string") return false;
-  return isConfigured ? url.startsWith(cfg.publicUrl) : url.startsWith(MOCK_PREFIX);
+  if (isConfigured) return url.startsWith(cfg.publicUrl);
+  return SERVER_UPLOAD_URL_RE.test(url);
 }
 
 function keyFromUrl(url) {
   if (isConfigured) return url.slice(cfg.publicUrl.length + 1);
-  return url.slice(MOCK_PREFIX.length);
+  const i = url.indexOf("/uploads/");
+  return i === -1 ? url : url.slice(i + "/uploads/".length);
 }
 
 function newKey(kind, mime, originalName) {
