@@ -32,14 +32,17 @@ class WebPushService {
    * and the HTTP/error code so Android-vs-desktop delivery failures are
    * visible in the logs.
    */
-  static async sendToSubscription(subscription, payload) {
+  static async sendToSubscription(subscription, payload, diagOrderNumber = null) {
     const startedAt = new Date().toISOString();
     const device = maskEndpoint(subscription.endpoint);
+    const diagTag = diagOrderNumber ? ` order=${diagOrderNumber}` : "";
     try {
+      console.log(`[diag-push] send attempt${diagTag} device=${device}`);
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       console.log(
-        `[push] ${startedAt} device=${device} status=success`
+        `[push] ${startedAt} device=${device} status=success${diagTag}`
       );
+      console.log(`[diag-push] result${diagTag} device=${device} status=success code=201`);
       return true;
     } catch (error) {
       const code = error.statusCode ?? "ERR";
@@ -51,6 +54,7 @@ class WebPushService {
       console.log(
         `[push] ${startedAt} device=${device} status=${permanent ? "failed-permanent" : "failed-transient"} code=${code} msg=${(error.message || "").slice(0, 200)}`
       );
+      console.log(`[diag-push] result${diagTag} device=${device} status=${permanent ? "failed-permanent" : "failed-transient"} code=${code} msg=${(error.message || "").slice(0, 200)} body=${((error.body || error.bodyString || "") + "").slice(0, 200)}`);
       if (permanent) {
         await PushSubscription.findOneAndUpdate(
           { endpoint: subscription.endpoint },
@@ -69,8 +73,11 @@ class WebPushService {
    * Send new order notification to all active POS subscriptions
    */
   static async sendNewOrderNotification(order) {
+    const diagOrder = `${order.orderNumber} id=${order._id}`;
+    console.log(`[diag-push] entry order=${diagOrder}`);
     if (!publicKey || !privateKey) {
       console.warn('VAPID keys not configured, skipping push notification');
+      console.log(`[diag-push] skip no VAPID order=${diagOrder}`);
       return;
     }
 
@@ -79,7 +86,14 @@ class WebPushService {
         isActive: true 
       }).populate('user', 'name role');
 
+      console.log(`[diag-push] selected order=${diagOrder} targeted=${subscriptions.length}`);
+      subscriptions.forEach((s) => {
+        const uid = s.user ? String(s.user._id || s.user) : "null";
+        console.log(`[diag-push] target order=${diagOrder} device=${maskEndpoint(s.endpoint)} user=${uid} isActive=${s.isActive}`);
+      });
+
       if (subscriptions.length === 0) {
+        console.log(`[diag-push] no subscriptions order=${diagOrder}`);
         return;
       }
 
@@ -101,7 +115,7 @@ class WebPushService {
             endpoint: sub.endpoint,
             keys: sub.keys
           };
-          return this.sendToSubscription(subscriptionObj, payload);
+          return this.sendToSubscription(subscriptionObj, payload, order.orderNumber);
         })
       );
 
@@ -110,8 +124,10 @@ class WebPushService {
       console.log(
         `[push] new-order: targeted=${results.length} delivered=${delivered} failed=${failed}`
       );
+      console.log(`[diag-push] final order=${diagOrder} targeted=${results.length} delivered=${delivered} failed=${failed}`);
     } catch (error) {
       console.error('Error sending new order push notifications:', error.message);
+      console.log(`[diag-push] error order=${diagOrder} msg=${(error.message || "").slice(0, 300)}`);
     }
   }
 

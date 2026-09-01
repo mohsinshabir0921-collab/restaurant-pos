@@ -812,9 +812,13 @@ const createOrder = async (req, res) => {
       console.error("ORDER NOTIFICATION ERROR:", notifyError.message);
     }
 
-    // Send push notification to POS devices (non-blocking)
-    WebPushService.sendNewOrderNotification(order).catch(err => {
+    // Send push notification to POS devices (non-blocking) — diagnostic tracing
+    console.log(`[diag-push] invoke order=${order.orderNumber} id=${order._id} source=${order.source}`);
+    WebPushService.sendNewOrderNotification(order).then(() => {
+      console.log(`[diag-push] invoke done order=${order.orderNumber} id=${order._id}`);
+    }).catch(err => {
       console.error('Push notification failed:', err.message);
+      console.log(`[diag-push] invoke error order=${order.orderNumber} id=${order._id} msg=${(err.message || "").slice(0,300)}`);
     });
 
     console.log("=== CREATE ORDER SUCCESS ===");
