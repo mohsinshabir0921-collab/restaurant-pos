@@ -100,15 +100,10 @@ app.use("/api/payment/webhook", express.raw({ type: "application/json" }));
 
 app.use(express.json());
 
-// Uploaded hero media is written to server/.uploads-mock and served back over
-// HTTPS by this static route whenever R2 is not configured. express.static
-// sets correct MIME types and supports byte-range requests, so images and MP4
-// videos load and play in browsers. When R2 is configured, uploads live in the
-// bucket and this route is not needed.
-const storageAdapter = require("./storage/storageAdapter");
-if (!storageAdapter.isConfigured) {
-  app.use("/uploads", express.static(storageAdapter.MOCK_DIR));
-}
+// Hero media is stored persistently in MongoDB GridFS (heroMedia bucket),
+// mirroring the menuImages bucket. No local filesystem (.uploads-mock) or R2
+// is used; images survive restarts/redeploys. Served via
+// GET /api/settings/media/hero/:id (see settingsRoutes).
 
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/auth/refresh", refreshLimiter);

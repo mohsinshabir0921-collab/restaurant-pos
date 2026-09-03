@@ -1,6 +1,8 @@
+const mongoose = require("mongoose");
 const Settings = require("../models/Settings");
 const storage = require("../storage/storageAdapter");
 const { handleError } = require("../utils/httpError");
+const { getHeroMediaBucket } = require("../utils/gridfs");
 
 // Public origin for the stored media URL. In production (Render behind a TLS
 // proxy) Express sees X-Forwarded-Proto: https and the Host header, so the URL
@@ -101,4 +103,42 @@ const removeMedia = async (req, res) => {
   }
 };
 
-module.exports = { uploadMedia, removeMedia, ALLOWED };
+const getHeroMedia = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    const bucket = getHeroMediaBucket();
+    const fileId = new mongoose.Types.ObjectId(id);
+    const files = await bucket.find({ _id: fileId }).toArray();
+    if (!files || files.length === 0) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    const file = files[0];
+    // MIME type from stored contentType (driver may store in metadata on some versions)
+    const ct = file.contentType || file.metadata?.contentType || "application/octet-stream";
+    res.set("Content-Type", ct);
+    // Long-lived cache — hero media is immutable per fileId; replacement creates new id
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    // Content-Length if known
+    if (file.length) res.set("Content-Length", String(file.length));
+    const downloadStream = bucket.openDownloadStream(fileId);
+    downloadStream.on("error", () => {
+      if (!res.headersSent) {
+        return res.status(404).json({ success: false, message: "Image not found" });
+      }
+      res.end();
+    });
+    return downloadStream.pipe(res);
+  } catch (error) {
+    console.log("GET HERO MEDIA ERROR:", error);
+    if (!res.headersSent) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    return res.end();
+  }
+};
+
+module.exports = { uploadMedia, removeMedia, getHeroMedia, ALLOWED };

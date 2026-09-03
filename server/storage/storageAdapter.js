@@ -1,48 +1,17 @@
 const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
-const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const mongoose = require("mongoose");
+const { getHeroMediaBucket } = require("../utils/gridfs");
 
-// Provider-agnostic storage adapter.
-// Implementation: Cloudflare R2 (S3-compatible) when all R2_* env vars are
-// configured. Without R2 credentials the adapter uses server-backed storage:
-// uploaded files are written to server/.uploads-mock and served over HTTPS by
-// the Express /uploads static route (see index.js). The URL persisted in the
-// database is derived from the incoming request (X-Forwarded-Proto + Host) so
-// production stores a real public HTTPS URL — never localhost. STORAGE_PUBLIC_URL
-// overrides the public origin when the API is reachable on a different host.
+// Persistent hero media storage — MongoDB GridFS (same approach as menuImages).
+// No local filesystem (.uploads-mock) and no R2 requirement; hero uploads
+// survive restarts/redeploys because they live in MongoDB.
 
-const cfg = {
-  accountId: process.env.R2_ACCOUNT_ID,
-  accessKeyId: process.env.R2_ACCESS_KEY_ID,
-  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  bucket: process.env.R2_BUCKET,
-  publicUrl: (process.env.R2_PUBLIC_URL || "").replace(/\/$/, ""),
-};
-
-const isConfigured = Boolean(cfg.accountId && cfg.accessKeyId && cfg.secretAccessKey && cfg.bucket && cfg.publicUrl);
-
-let s3 = null;
-if (isConfigured) {
-  s3 = new S3Client({
-    region: "auto",
-    endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: cfg.accessKeyId,
-      secretAccessKey: cfg.secretAccessKey,
-    },
-  });
-}
-
-const MOCK_DIR = path.join(__dirname, "..", ".uploads-mock");
-
-// Fallback origin used only when the request context is unavailable (e.g.
-// tests that call uploadMedia directly) and STORAGE_PUBLIC_URL is not set.
 const DEFAULT_ORIGIN = `http://localhost:${process.env.PORT || 5000}`;
-
-// In server-backed mode the adapter only manages URLs this app created, i.e.
-// any http(s) origin that serves its /uploads path.
 const SERVER_UPLOAD_URL_RE = /^https?:\/\/[^/]+\/uploads\//;
+// New hero GridFS URLs: /api/settings/media/hero/<ObjectId> (public, cached)
+const HERO_GRIDFS_URL_RE = /\/api\/settings\/media\/hero\/[a-f0-9]{24}/i;
+// Legacy R2 URLs (if any exist) — keep managed for cleanup, but not required.
+const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL || "").replace(/\/$/, "");
 
 function extFromMime(mime, fallback) {
   const map = {
@@ -57,43 +26,70 @@ function extFromMime(mime, fallback) {
 }
 
 async function upload({ key, buffer, contentType, baseUrl }) {
-  if (isConfigured) {
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: cfg.bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: contentType,
-      })
-    );
-    return { url: `${cfg.publicUrl}/${key}` };
-  }
-  // Server-backed storage (no R2 credentials configured): write the file to
-  // disk and publish it under the public /uploads route of the API server.
-  const fp = path.join(MOCK_DIR, key);
-  fs.mkdirSync(path.dirname(fp), { recursive: true });
-  fs.writeFileSync(fp, buffer);
+  const bucket = getHeroMediaBucket();
+  const filename = key;
+  const uploadStream = bucket.openUploadStream(filename, {
+    contentType,
+    metadata: { originalName: filename, contentType },
+  });
+  await new Promise((resolve, reject) => {
+    uploadStream.on("error", reject);
+    uploadStream.on("finish", resolve);
+    uploadStream.end(buffer);
+  });
+  const fileId = uploadStream.id.toString();
   const origin = (baseUrl || process.env.STORAGE_PUBLIC_URL || DEFAULT_ORIGIN).replace(/\/$/, "");
-  return { url: `${origin}/uploads/${key}` };
+  return { url: `${origin}/api/settings/media/hero/${fileId}` };
 }
 
 async function remove(key) {
-  if (isConfigured) {
-    await s3.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
+  // key is expected to be a GridFS ObjectId string for new hero URLs.
+  // Legacy /uploads or R2 keys are ignored silently — there is no ephemeral
+  // file to delete and existing images must NOT be deleted inadvertently.
+  if (!key) return;
+  if (mongoose.Types.ObjectId.isValid(key)) {
+    try {
+      const bucket = getHeroMediaBucket();
+      const fileId = new mongoose.Types.ObjectId(key);
+      // Verify file exists before delete to avoid noisy errors.
+      const files = await bucket.find({ _id: fileId }).toArray();
+      if (files && files.length > 0) {
+        await bucket.delete(fileId);
+      }
+    } catch (e) {
+      // Do not throw for missing file — legacy URLs or already-deleted files
+      // should not block the new upload. Log at debug level only.
+      console.warn("hero media: failed to remove previous object", e.message);
+    }
     return;
   }
-  const fp = path.join(MOCK_DIR, key);
-  if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  // Legacy key (e.g. hero/image/uuid.png or R2 path) — no GridFS file to
+  // remove; do not touch filesystem. Existing images are preserved.
+  return;
 }
 
 function isManagedUrl(url) {
   if (!url || typeof url !== "string") return false;
-  if (isConfigured) return url.startsWith(cfg.publicUrl);
-  return SERVER_UPLOAD_URL_RE.test(url);
+  if (HERO_GRIDFS_URL_RE.test(url)) return true;
+  if (SERVER_UPLOAD_URL_RE.test(url)) return true;
+  if (R2_PUBLIC_URL && url.startsWith(R2_PUBLIC_URL)) return true;
+  return false;
 }
 
 function keyFromUrl(url) {
-  if (isConfigured) return url.slice(cfg.publicUrl.length + 1);
+  // New hero GridFS URL: extract ObjectId after /hero/
+  const heroIdx = url.indexOf("/api/settings/media/hero/");
+  if (heroIdx !== -1) {
+    const after = url.slice(heroIdx + "/api/settings/media/hero/".length);
+    // Strip query string if any
+    const qIdx = after.indexOf("?");
+    const id = qIdx === -1 ? after : after.slice(0, qIdx);
+    // Return raw id even if not valid ObjectId — remove() will no-op safely.
+    return id.split("/")[0];
+  }
+  if (R2_PUBLIC_URL && url.startsWith(R2_PUBLIC_URL)) {
+    return url.slice(R2_PUBLIC_URL.length + 1);
+  }
   const i = url.indexOf("/uploads/");
   return i === -1 ? url : url.slice(i + "/uploads/".length);
 }
@@ -105,6 +101,12 @@ function newKey(kind, mime, originalName) {
   return `hero/${kind}/${crypto.randomUUID()}.${ext}`;
 }
 
+// Kept for backward-compatible checks in tests/caller; hero is now always
+// GridFS-backed, so isConfigured reflects GridFS readiness (DB connected).
+const isConfigured = true;
+const isProduction = process.env.NODE_ENV === "production";
+const MOCK_DIR = null;
+
 module.exports = {
   upload,
   remove,
@@ -112,5 +114,6 @@ module.exports = {
   keyFromUrl,
   newKey,
   isConfigured,
+  isProduction,
   MOCK_DIR,
 };

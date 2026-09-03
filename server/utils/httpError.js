@@ -30,6 +30,13 @@ const handleError = (res, error) => {
     return res.status(500).json({ success: false, message: error.message || "Server error" });
   }
 
+  if (error.statusCode && Number.isInteger(error.statusCode) && error.statusCode >= 400 && error.statusCode < 600) {
+    return res.status(error.statusCode).json({ success: false, message: error.message || "Server error" });
+  }
+  if (error.status && Number.isInteger(error.status) && error.status >= 400 && error.status < 600) {
+    return res.status(error.status).json({ success: false, message: error.message || "Server error" });
+  }
+
   console.error("[SERVER ERROR]", error.name, error.message);
 
   return res.status(500).json({ success: false, message: "Server error" });

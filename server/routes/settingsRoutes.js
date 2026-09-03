@@ -11,7 +11,7 @@ const {
   initializeDefaults,
   testPrint,
 } = require("../controllers/settingsController");
-const { uploadMedia, removeMedia } = require("../controllers/mediaController");
+const { uploadMedia, removeMedia, getHeroMedia } = require("../controllers/mediaController");
 
 const { protect } = require("../middleware/authMiddleware");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
@@ -35,6 +35,9 @@ const multerErrorHandler = (err, req, res, next) => {
 };
 
 router.get("/public", getPublicSettings);
+// Public hero media retrieval — GridFS-backed, no auth (website needs to load image)
+router.get("/media/hero/:id", getHeroMedia);
+
 router.get("/init", protect, authorizeRoles("admin"), initializeDefaults);
 router.post("/test-printer", protect, authorizeRoles("admin"), testPrint);
 router.get("/", protect, authorizeRoles("admin"), getAllSettings);
@@ -42,7 +45,7 @@ router.get("/:key", protect, authorizeRoles("admin"), getSetting);
 router.put("/:key", protect, authorizeRoles("admin"), updateSetting);
 router.post("/bulk", protect, authorizeRoles("admin"), bulkUpdateSettings);
 
-// Admin-only media upload (Hero Image / Hero Video) to object storage.
+// Admin-only media upload (Hero Image / Hero Video) to GridFS (persistent).
 router.post(
   "/media",
   protect,
