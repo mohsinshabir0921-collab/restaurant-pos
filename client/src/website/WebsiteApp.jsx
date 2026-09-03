@@ -39,13 +39,7 @@ function WebsiteGate({ children }) {
     return <WebsiteErrorState error={error} onRetry={reload} />;
   }
   if (settings.website_enabled === false) {
-    const phone = String(settings.restaurant_phone || "").trim();
-    const whatsappDigits = String(settings.whatsapp_number || "").replace(/\D/g, "");
-    const email = String(settings.restaurant_email || "").trim();
-    let contactUrl = null;
-    if (phone) contactUrl = `tel:${phone.replace(/\s+/g, "")}`;
-    else if (whatsappDigits) contactUrl = `https://wa.me/${whatsappDigits}`;
-    else if (email) contactUrl = `mailto:${email}`;
+    const contactUrl = "https://wa.me/919018111311";
     return (
       <WebsiteDisabledState
         restaurantName={settings.restaurant_name || "Khyenn Chyenn"}
