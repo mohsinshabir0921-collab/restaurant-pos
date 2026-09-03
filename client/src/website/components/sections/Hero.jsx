@@ -111,7 +111,7 @@ export default function Hero({
       >
         <motion.p className="hp-hero-eyebrow" variants={heroItem}>
           <span className="hp-hero-eyebrow-rule" aria-hidden="true" />
-          <span>Kashmiri Cuisine · Est. 2020</span>
+          <span>SINCE 2020</span>
         </motion.p>
 
         <motion.h1 className="hp-hero-title" variants={heroItem}>
