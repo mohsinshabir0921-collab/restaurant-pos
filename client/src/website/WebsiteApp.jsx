@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { WebsiteProvider, useWebsite } from "./context/WebsiteContext";
 import { CartProvider } from "./context/CartContext";
@@ -12,11 +13,26 @@ import OrderConfirmationPage from "./pages/OrderConfirmationPage";
 import TrackOrderPage from "./pages/TrackOrderPage";
 import AdditionalPaymentPage from "./pages/AdditionalPaymentPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import { WebsiteLoadingShell, WebsiteErrorState } from "./components/WebsiteGateStates";
 
 function WebsiteGate({ children }) {
-  const { loading, settings } = useWebsite();
+  const { loading, error, settings, reload } = useWebsite();
+  const [showSlow, setShowSlow] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setShowSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSlow(true), 7000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   if (loading) {
-    return <div className="loading">Loading…</div>;
+    return <WebsiteLoadingShell slow={showSlow} />;
+  }
+  if (error) {
+    return <WebsiteErrorState error={error} onRetry={reload} />;
   }
   if (settings.website_enabled === false) {
     return (

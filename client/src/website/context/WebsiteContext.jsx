@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { websiteAPI } from "../services/api";
 
 const WebsiteContext = createContext(null);
@@ -57,23 +57,40 @@ export const WebsiteProvider = ({ children }) => {
   const [settings, setSettings] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const isFetchingRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const loadSettings = useCallback(async () => {
-    try {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (mountedRef.current) {
       setLoading(true);
+      setError(null);
+    }
+    try {
       const response = await websiteAPI.getPublicSettings();
+      if (!mountedRef.current) return;
       setSettings(response.data.settings || {});
       setError(null);
     } catch (err) {
+      if (!mountedRef.current) return;
       console.error("Failed to load settings:", err);
-      setError(err.response?.data?.message || "Failed to load restaurant settings");
+      // Preserve existing settings (do not invent defaults); surface retryable error.
+      const message =
+        err.response?.data?.message || err.message || "Failed to load restaurant settings";
+      setError(message);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
+      isFetchingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     loadSettings();
+    return () => {
+      mountedRef.current = false;
+    };
   }, [loadSettings]);
 
   const getSetting = useCallback(

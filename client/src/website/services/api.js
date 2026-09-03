@@ -10,7 +10,7 @@ const websiteApi = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 30000,
+  timeout: 10000,
 });
 
 // Public website API calls. Order/payment/coupon calls go through the
