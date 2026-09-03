@@ -13,7 +13,11 @@ import OrderConfirmationPage from "./pages/OrderConfirmationPage";
 import TrackOrderPage from "./pages/TrackOrderPage";
 import AdditionalPaymentPage from "./pages/AdditionalPaymentPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import { WebsiteLoadingShell, WebsiteErrorState } from "./components/WebsiteGateStates";
+import {
+  WebsiteLoadingShell,
+  WebsiteErrorState,
+  WebsiteDisabledState,
+} from "./components/WebsiteGateStates";
 
 function WebsiteGate({ children }) {
   const { loading, error, settings, reload } = useWebsite();
@@ -35,24 +39,19 @@ function WebsiteGate({ children }) {
     return <WebsiteErrorState error={error} onRetry={reload} />;
   }
   if (settings.website_enabled === false) {
+    const phone = String(settings.restaurant_phone || "").trim();
+    const whatsappDigits = String(settings.whatsapp_number || "").replace(/\D/g, "");
+    const email = String(settings.restaurant_email || "").trim();
+    let contactUrl = null;
+    if (phone) contactUrl = `tel:${phone.replace(/\s+/g, "")}`;
+    else if (whatsappDigits) contactUrl = `https://wa.me/${whatsappDigits}`;
+    else if (email) contactUrl = `mailto:${email}`;
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#3f0d0a",
-          color: "#f4e6d2",
-        }}
-      >
-        <div style={{ textAlign: "center", padding: 24, maxWidth: 480 }}>
-          <h1 style={{ fontFamily: "var(--font-display)", marginBottom: 12 }}>
-            {settings.restaurant_name || "Restaurant"}
-          </h1>
-          <p>Our online ordering is currently unavailable. Please check back later or contact us directly.</p>
-        </div>
-      </div>
+      <WebsiteDisabledState
+        restaurantName={settings.restaurant_name || "Khyenn Chyenn"}
+        onRetry={reload}
+        contactUrl={contactUrl}
+      />
     );
   }
   return children;
