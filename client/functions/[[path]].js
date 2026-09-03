@@ -10,12 +10,16 @@ export async function onRequest(context) {
     if (assetResponse.status !== 404) return assetResponse;
   }
 
-  // POS deep-link fallback -> POS SPA shell. env.ASSETS.fetch() must be given
-  // the pretty path (/pos/) rather than the asset path (/pos/index.html);
-  // see Cloudflare Pages docs on ASSETS.fetch.
+  // POS deep-link fallback -> POS SPA shell. Serve the POS entry directly;
+  // the built asset is at /pos/index.html (postbuild.js). Fetch that file so
+  // direct /pos/* requests (e.g. /pos/settings hard refresh) never fall through
+  // to the public website 404.
   if (path === "/pos" || path.startsWith("/pos/")) {
-    const posResponse = await env.ASSETS.fetch(new URL("/pos/", url));
+    const posResponse = await env.ASSETS.fetch(new URL("/pos/index.html", url));
     if (posResponse.status !== 404) return posResponse;
+    // Fallback to pretty path for environments where directory index is required
+    const posPretty = await env.ASSETS.fetch(new URL("/pos/", url));
+    if (posPretty.status !== 404) return posPretty;
   }
 
   // Public website: static directory indices exist for /, /menu, /cart,
