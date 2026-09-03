@@ -1,6 +1,10 @@
 # POS SPA fallback - must precede the public website catch-all
 /pos/* /pos/index.html 200
 
+# Legacy /website -> / redirect (moved to root in fa4ee42)
+/website / 301
+/website/* / 301
+
 # Public website SPA fallback.
 # /menu, /cart, /checkout, /track and /order-confirmation have static
 # directory index.html files; this catch-all serves the website shell for
