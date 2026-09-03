@@ -14,6 +14,9 @@ export default function MenuPage() {
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState("");
+  const menuImageInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -159,6 +162,46 @@ export default function MenuPage() {
       });
     }
     setShowModal(true);
+    setImageUploadError("");
+    setImageUploading(false);
+  };
+
+  const handleMenuImageFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageUploadError("");
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const maxBytes = 5 * 1024 * 1024;
+    if (!allowedTypes.includes(file.type) && !allowedTypes.includes(file.type.toLowerCase())) {
+      setImageUploadError("Invalid file type. Allowed: JPG, JPEG, PNG, WEBP");
+      if (menuImageInputRef.current) menuImageInputRef.current.value = "";
+      return;
+    }
+    if (file.size > maxBytes) {
+      setImageUploadError("File too large. Max 5 MB");
+      if (menuImageInputRef.current) menuImageInputRef.current.value = "";
+      return;
+    }
+    setImageUploading(true);
+    try {
+      const res = await menuAPI.uploadImage(file);
+      if (res.data?.success && res.data?.url) {
+        setFormData((d) => ({ ...d, image: res.data.url }));
+      } else {
+        setImageUploadError(res.data?.message || "Upload failed");
+      }
+    } catch (err) {
+      setImageUploadError(err.response?.data?.message || "Upload failed");
+    } finally {
+      setImageUploading(false);
+      if (menuImageInputRef.current) menuImageInputRef.current.value = "";
+    }
+  };
+
+  const clearMenuImage = () => {
+    setFormData((d) => ({ ...d, image: "" }));
+    setImageUploadError("");
+    if (menuImageInputRef.current) menuImageInputRef.current.value = "";
   };
 
   const handleDelete = async (id) => {
@@ -310,8 +353,75 @@ export default function MenuPage() {
                   <input type="text" value={formData.tags} onChange={e => setFormData(d => ({ ...d, tags: e.target.value }))} />
                 </div>
                 <div className="form-group full-width">
-                  <label>Image URL</label>
-                  <input type="text" value={formData.image} onChange={e => setFormData(d => ({ ...d, image: e.target.value }))} />
+                  <label>Menu Image</label>
+                  {formData.image ? (
+                    <div style={{ marginBottom: 8 }}>
+                      <img
+                        src={formData.image}
+                        alt="Preview"
+                        style={{ width: "100%", maxWidth: 240, height: 140, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e9f0" }}
+                        onError={(e) => (e.target.style.display = "none")}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        width: "100%",
+                        maxWidth: 240,
+                        height: 140,
+                        border: "1px dashed #cdd5e1",
+                        borderRadius: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#94a3b8",
+                        fontSize: 13,
+                        marginBottom: 8,
+                      }}
+                    >
+                      No image selected
+                    </div>
+                  )}
+                  <input
+                    ref={menuImageInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    onChange={handleMenuImageFile}
+                    style={{ display: "none" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => menuImageInputRef.current?.click()}
+                      disabled={imageUploading}
+                    >
+                      {imageUploading ? "Uploading..." : "Upload Image"}
+                    </button>
+                    {formData.image && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={clearMenuImage}
+                        disabled={imageUploading}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {imageUploading && <div style={{ fontSize: 12, color: "#0f766e", marginTop: 6 }}>Uploading image...</div>}
+                  {imageUploadError && <div style={{ fontSize: 12, color: "#dc2626", marginTop: 6 }}>{imageUploadError}</div>}
+                  <div style={{ marginTop: 10 }}>
+                    <label style={{ fontSize: 12, color: "#55657a", fontWeight: 500 }}>Image URL (fallback / auto-filled after upload)</label>
+                    <input
+                      type="text"
+                      value={formData.image}
+                      onChange={(e) => setFormData((d) => ({ ...d, image: e.target.value }))}
+                      placeholder="/images/menu/example.webp or https://..."
+                      style={{ marginTop: 4 }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Accepted: JPG, JPEG, PNG, WEBP — Max 5 MB</div>
                 </div>
                 <div className="form-group full-width">
                   <label>Available</label>

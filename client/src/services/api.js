@@ -154,6 +154,13 @@ export const menuAPI = {
   delete: (id) => api.delete(`/menu/${id}`),
   toggleAvailability: (id, isAvailable) => api.patch(`/menu/${id}/toggle`, { isAvailable }),
   reorder: (itemOrders) => api.post("/menu/reorder", { itemOrders }),
+  uploadImage: (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api.post("/menu/upload-image", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
 };
 
 export const tableAPI = {

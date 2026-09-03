@@ -1,7 +1,23 @@
+const crypto = require("crypto");
+const mongoose = require("mongoose");
 const MenuItem = require("../models/MenuItem");
 const Category = require("../models/Category");
 const { handleError } = require("../utils/httpError");
 const { parsePagination } = require("../utils/pagination");
+const { getMenuImagesBucket } = require("../utils/gridfs");
+
+const ALLOWED_MENU_IMAGE = {
+  mimes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+  maxBytes: 5 * 1024 * 1024,
+  maxLabel: "5 MB",
+};
+
+function publicBaseUrl(req) {
+  const get = (header) => (typeof req?.get === "function" ? req.get(header) : req?.[header]);
+  const proto = ((get("x-forwarded-proto") || "").split(",")[0] || "http").trim();
+  const host = (get("host") || "").trim() || `localhost:${process.env.PORT || 5000}`;
+  return `${proto}://${host}`.replace(/\/$/, "");
+}
 
 const getMenuItems = async (req, res) => {
   try {
@@ -410,6 +426,88 @@ const reorderMenuItems = async (req, res) => {
   }
 };
 
+const uploadMenuImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No file provided" });
+    }
+    const mime = req.file.mimetype;
+    const normalizedMime = mime === "image/jpg" ? "image/jpeg" : mime;
+    if (!ALLOWED_MENU_IMAGE.mimes.includes(mime) && !ALLOWED_MENU_IMAGE.mimes.includes(normalizedMime)) {
+      return res.status(400).json({
+        success: false,
+        message: `Unsupported file type. Allowed: JPG, JPEG, PNG, WEBP`,
+      });
+    }
+    if (req.file.size > ALLOWED_MENU_IMAGE.maxBytes) {
+      return res.status(400).json({
+        success: false,
+        message: `File too large (max ${ALLOWED_MENU_IMAGE.maxLabel})`,
+      });
+    }
+    const extMap = {
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+    const ext = extMap[normalizedMime] || (req.file.originalname.split(".").pop() || "jpg").toLowerCase();
+    const filename = `menu-${crypto.randomUUID()}.${ext}`;
+    const bucket = getMenuImagesBucket();
+    const uploadStream = bucket.openUploadStream(filename, {
+      contentType: normalizedMime,
+      metadata: { originalName: req.file.originalname },
+    });
+    await new Promise((resolve, reject) => {
+      uploadStream.on("error", reject);
+      uploadStream.on("finish", resolve);
+      uploadStream.end(req.file.buffer);
+    });
+    const fileId = uploadStream.id;
+    const base = publicBaseUrl(req);
+    const url = `${base}/api/menu/images/${fileId}`;
+    // Also accept relative URL stored as /api/menu/images/<id> for compatibility;
+    // frontend will handle both absolute and relative.
+    return res.status(200).json({ success: true, url });
+  } catch (error) {
+    console.log("UPLOAD MENU IMAGE ERROR:", error);
+    return handleError(res, error, "Upload failed");
+  }
+};
+
+const getMenuImage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    const bucket = getMenuImagesBucket();
+    const fileId = new mongoose.Types.ObjectId(id);
+    const files = await bucket.find({ _id: fileId }).toArray();
+    if (!files || files.length === 0) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    const file = files[0];
+    res.set("Content-Type", file.contentType || "application/octet-stream");
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    const downloadStream = bucket.openDownloadStream(fileId);
+    downloadStream.on("error", () => {
+      if (!res.headersSent) {
+        return res.status(404).json({ success: false, message: "Image not found" });
+      }
+      res.end();
+    });
+    return downloadStream.pipe(res);
+  } catch (error) {
+    console.log("GET MENU IMAGE ERROR:", error);
+    if (!res.headersSent) {
+      return res.status(404).json({ success: false, message: "Image not found" });
+    }
+    return res.end();
+  }
+};
+
 module.exports = {
   getMenuItems,
   getMenuItemsByCategory,
@@ -419,4 +517,6 @@ module.exports = {
   deleteMenuItem,
   toggleAvailability,
   reorderMenuItems,
+  uploadMenuImage,
+  getMenuImage,
 };
