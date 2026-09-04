@@ -53,9 +53,61 @@ const isRestaurantOpenNow = (hours) => {
   return nowMin >= open && nowMin < close;
 };
 
+const CACHE_KEY = "website_public_settings_v1";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const isValidSettings = (s) =>
+  s && typeof s === "object" && !Array.isArray(s) && typeof s.website_enabled === "boolean";
+
+const readCachedSettings = () => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const { settings: cachedSettings, timestamp } = parsed;
+    if (!isValidSettings(cachedSettings)) return null;
+    if (typeof timestamp !== "number") return null;
+    if (Date.now() - timestamp > CACHE_TTL_MS) return null;
+    return cachedSettings;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedSettings = (freshSettings) => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ settings: freshSettings, timestamp: Date.now() })
+    );
+  } catch {
+    // storage failure (quota, private browsing) must never break website
+  }
+};
+
+const getFriendlyErrorMessage = (err) => {
+  const raw =
+    err?.response?.data?.message || err?.message || "Failed to load restaurant settings";
+  const lower = String(raw).toLowerCase();
+  if (err?.code === "ECONNABORTED" || lower.includes("timeout") || lower.includes("exceeded")) {
+    return "Please check your connection and try again.";
+  }
+  return String(raw);
+};
+
 export const WebsiteProvider = ({ children }) => {
-  const [settings, setSettings] = useState({});
-  const [loading, setLoading] = useState(true);
+  // Single-read init: avoid double JSON.parse / TTL race between useState initializers and effect
+  const initialCacheRef = useRef(undefined);
+  const getInitialCached = () => {
+    if (initialCacheRef.current !== undefined) return initialCacheRef.current;
+    initialCacheRef.current = readCachedSettings();
+    return initialCacheRef.current;
+  };
+  const [settings, setSettings] = useState(() => getInitialCached() || {});
+  const [loading, setLoading] = useState(() => !getInitialCached());
   const [error, setError] = useState(null);
   const isFetchingRef = useRef(false);
   const mountedRef = useRef(true);
@@ -70,14 +122,14 @@ export const WebsiteProvider = ({ children }) => {
     try {
       const response = await websiteAPI.getPublicSettings();
       if (!mountedRef.current) return;
-      setSettings(response.data.settings || {});
+      const fresh = response.data.settings || {};
+      setSettings(fresh);
       setError(null);
+      if (isValidSettings(fresh)) writeCachedSettings(fresh);
     } catch (err) {
       if (!mountedRef.current) return;
       console.error("Failed to load settings:", err);
-      // Preserve existing settings (do not invent defaults); surface retryable error.
-      const message =
-        err.response?.data?.message || err.message || "Failed to load restaurant settings";
+      const message = getFriendlyErrorMessage(err);
       setError(message);
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -85,13 +137,39 @@ export const WebsiteProvider = ({ children }) => {
     }
   }, []);
 
+  const backgroundRefresh = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    try {
+      const response = await websiteAPI.getPublicSettings();
+      if (!mountedRef.current) return;
+      const fresh = response.data.settings || {};
+      setSettings(fresh);
+      setError(null);
+      if (isValidSettings(fresh)) writeCachedSettings(fresh);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      if (import.meta.env.DEV) {
+        console.warn("[WebsiteContext] Background refresh failed:", err?.message || err);
+      }
+      // Keep cached website visible; do not set error
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
-    loadSettings();
+    const cached = initialCacheRef.current;
+    if (cached) {
+      backgroundRefresh();
+    } else {
+      loadSettings();
+    }
     return () => {
       mountedRef.current = false;
     };
-  }, [loadSettings]);
+  }, [loadSettings, backgroundRefresh]);
 
   const getSetting = useCallback(
     (key, defaultValue = "") => settings[key] ?? defaultValue,
