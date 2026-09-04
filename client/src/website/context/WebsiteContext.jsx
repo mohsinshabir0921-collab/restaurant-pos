@@ -92,10 +92,25 @@ const getFriendlyErrorMessage = (err) => {
   const raw =
     err?.response?.data?.message || err?.message || "Failed to load restaurant settings";
   const lower = String(raw).toLowerCase();
-  if (err?.code === "ECONNABORTED" || lower.includes("timeout") || lower.includes("exceeded")) {
+  if (
+    err?.code === "ECONNABORTED" ||
+    lower.includes("timeout") ||
+    lower.includes("exceeded") ||
+    lower.includes("network")
+  ) {
     return "Please check your connection and try again.";
   }
   return String(raw);
+};
+
+const isTransientError = (err) => {
+  const code = err?.code;
+  const msg = String(err?.message || "").toLowerCase();
+  const hasResponse = !!err?.response;
+  if (code === "ECONNABORTED") return true;
+  if (msg.includes("timeout") || msg.includes("exceeded") || msg.includes("network")) return true;
+  if (!hasResponse && err?.request) return true;
+  return false;
 };
 
 export const WebsiteProvider = ({ children }) => {
@@ -119,22 +134,47 @@ export const WebsiteProvider = ({ children }) => {
       setLoading(true);
       setError(null);
     }
-    try {
-      const response = await websiteAPI.getPublicSettings();
-      if (!mountedRef.current) return;
-      const fresh = response.data.settings || {};
-      setSettings(fresh);
-      setError(null);
-      if (isValidSettings(fresh)) writeCachedSettings(fresh);
-    } catch (err) {
-      if (!mountedRef.current) return;
-      console.error("Failed to load settings:", err);
-      const message = getFriendlyErrorMessage(err);
-      setError(message);
-    } finally {
-      if (mountedRef.current) setLoading(false);
-      isFetchingRef.current = false;
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const retryConfig = attempt === 1 ? { timeout: 15000 } : undefined;
+        const response = await websiteAPI.getPublicSettings(retryConfig);
+        if (!mountedRef.current) {
+          isFetchingRef.current = false;
+          return;
+        }
+        const fresh = response.data.settings || {};
+        setSettings(fresh);
+        setError(null);
+        if (isValidSettings(fresh)) writeCachedSettings(fresh);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        if (!mountedRef.current) {
+          isFetchingRef.current = false;
+          return;
+        }
+        const shouldRetry = attempt === 0 && isTransientError(err);
+        if (shouldRetry) {
+          if (import.meta.env.DEV) {
+            console.warn("[WebsiteContext] transient load failure, retrying in 1.5s:", err?.message || err);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          if (!mountedRef.current) {
+            isFetchingRef.current = false;
+            return;
+          }
+          continue;
+        }
+        console.error("Failed to load settings:", err);
+        const message = getFriendlyErrorMessage(err);
+        if (mountedRef.current) setError(message);
+        break;
+      }
     }
+    if (mountedRef.current) setLoading(false);
+    isFetchingRef.current = false;
   }, []);
 
   const backgroundRefresh = useCallback(async () => {

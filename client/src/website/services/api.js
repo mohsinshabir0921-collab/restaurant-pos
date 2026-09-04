@@ -10,14 +10,14 @@ const websiteApi = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000,
+  timeout: 30000,
 });
 
 // Public website API calls. Order/payment/coupon calls go through the
 // dedicated public endpoints (/api/public) which reuse the same POS
 // controllers server-side with price/availability validation.
 export const websiteAPI = {
-  getPublicSettings: () => websiteApi.get("/settings/public"),
+  getPublicSettings: (config) => websiteApi.get("/settings/public", config),
   getActiveBanners: () => websiteApi.get("/public/banners"),
   getMenuByCategory: () => websiteApi.get("/menu/by-category"),
   getMenuItem: (id) => websiteApi.get(`/menu/${id}`),
