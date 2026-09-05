@@ -3884,6 +3884,37 @@
   white-space: nowrap;
 }
 
+/* iOS install-required toast overflow fix — iPhone Safari 320/375/390 */
+.push-notifications-section {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.push-notifications-card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.push-notifications-card .toast.warning {
+  position: static;
+  max-width: calc(100vw - 24px);
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.push-notifications-card .toast.warning strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .auth-page {
   min-height: 100vh;
   display: flex;
