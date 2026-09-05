@@ -3,6 +3,38 @@ import { useAuth } from '../context/AuthContext';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
+// Bounded-promise helper — never let a Push/SW step hang forever in the UI.
+// Each async SW/Push step is raced against a timeout rejection so
+// setLoading(false) in finally always executes.
+const withTimeout = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out`)), ms)
+    ),
+  ]);
+
+const SW_READY_TIMEOUT_MS = 8000;
+const GET_SUBSCRIPTION_TIMEOUT_MS = 5000;
+const SUBSCRIBE_TIMEOUT_MS = 10000;
+const SAVE_TIMEOUT_MS = 10000;
+const FRIENDLY_ENABLE_ERROR =
+  'Push notifications could not be enabled. Please reload the POS and try again.';
+
+const getPosRegistration = async () => {
+  // Prefer an existing /pos/ registration; otherwise register explicitly.
+  // This handles both the trailing-slash edge (/pos vs /pos/) and first-load
+  // cases where navigator.serviceWorker.ready would otherwise pend forever
+  // because the document is not yet controlled.
+  let registration = await navigator.serviceWorker.getRegistration('/pos/');
+  if (registration) return registration;
+  // No /pos/ registration yet — register it now.
+  registration = await navigator.serviceWorker.register('/pos/sw.js', {
+    scope: '/pos/',
+  });
+  return registration;
+};
+
 export const usePosPushNotifications = () => {
   const { user } = useAuth();
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -39,14 +71,37 @@ export const usePosPushNotifications = () => {
 
   const checkSubscription = useCallback(async () => {
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
+      // Bounded readiness: prefer explicit /pos/ registration over unbounded ready.
+      let registration = null;
+      try {
+        registration = await withTimeout(
+          getPosRegistration(),
+          SW_READY_TIMEOUT_MS,
+          'Service worker'
+        );
+      } catch {
+        // Fallback to ready with timeout (e.g. during SW update race)
+        registration = await withTimeout(
+          navigator.serviceWorker.ready,
+          SW_READY_TIMEOUT_MS,
+          'Service worker'
+        );
+      }
+      const subscription = await withTimeout(
+        registration.pushManager.getSubscription(),
+        GET_SUBSCRIPTION_TIMEOUT_MS,
+        'Subscription check'
+      );
       setIsSubscribed(!!subscription);
     } catch (error) {
       console.error('Error checking subscription:', error);
       // Fallback to any registration if ready fails (e.g. during SW update)
       try {
-        const subscription = await findExistingSubscription();
+        const subscription = await withTimeout(
+          findExistingSubscription(),
+          GET_SUBSCRIPTION_TIMEOUT_MS,
+          'Subscription check'
+        );
         setIsSubscribed(!!subscription);
       } catch {}
     }
@@ -66,14 +121,19 @@ export const usePosPushNotifications = () => {
 
   const saveSubscriptionToBackend = useCallback(async (subscription) => {
     // Send subscription to backend - use API client for automatic JWT attachment
+    // Wrapped with a short timeout so a hanging /api call cannot leave the UI stuck on Enabling...
     const api = await import('../services/api').then(m => m.default);
-    await api.post('/push/subscribe', {
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh')))),
-        auth: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth'))))
-      }
-    });
+    await withTimeout(
+      api.post('/push/subscribe', {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh')))),
+          auth: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth'))))
+        }
+      }),
+      SAVE_TIMEOUT_MS,
+      'Save subscription'
+    );
   }, []);
 
   const subscribe = useCallback(async () => {
@@ -87,6 +147,9 @@ export const usePosPushNotifications = () => {
       if (!granted) return false;
     }
 
+    // Prevent duplicate concurrent enable attempts (R18)
+    if (loading) return false;
+
     setLoading(true);
     try {
       // Always use the subscription for the current /pos/ registration.
@@ -94,8 +157,29 @@ export const usePosPushNotifications = () => {
       // would save a stale endpoint that FCM will reject with 404/410,
       // causing the backend to deactivate it and leaving isSubscribed true
       // while no valid push can be delivered.
-      const registration = await navigator.serviceWorker.ready;
-      let subscription = await registration.pushManager.getSubscription();
+      // Bounded readiness: do NOT await unbounded navigator.serviceWorker.ready.
+      // Explicitly obtain /pos/ registration first; only fall back to ready with timeout.
+      let registration;
+      try {
+        registration = await withTimeout(
+          getPosRegistration(),
+          SW_READY_TIMEOUT_MS,
+          'Service worker'
+        );
+      } catch (e) {
+        // Fallback to ready with timeout for edge cases (e.g. update in progress)
+        registration = await withTimeout(
+          navigator.serviceWorker.ready,
+          SW_READY_TIMEOUT_MS,
+          'Service worker'
+        );
+      }
+
+      let subscription = await withTimeout(
+        registration.pushManager.getSubscription(),
+        GET_SUBSCRIPTION_TIMEOUT_MS,
+        'Subscription check'
+      );
 
       if (!subscription) {
         // Convert VAPID key to Uint8Array
@@ -110,10 +194,14 @@ export const usePosPushNotifications = () => {
           return outputArray;
         };
 
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-        });
+        subscription = await withTimeout(
+          registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+          }),
+          SUBSCRIBE_TIMEOUT_MS,
+          'Push subscription'
+        );
       }
 
       await saveSubscriptionToBackend(subscription);
@@ -122,12 +210,13 @@ export const usePosPushNotifications = () => {
       return true;
     } catch (error) {
       console.error('Subscription error:', error);
-      alert('Failed to enable notifications: ' + error.message);
+      // Friendly, non-leaky error — never expose internal URLs/stack/JWT/VAPID.
+      alert(FRIENDLY_ENABLE_ERROR);
       return false;
     } finally {
       setLoading(false);
     }
-  }, [user, permission, requestPermission, saveSubscriptionToBackend]);
+  }, [user, permission, requestPermission, saveSubscriptionToBackend, loading]);
 
   const unsubscribe = useCallback(async () => {
     if (!user) return false;
