@@ -277,6 +277,12 @@ export default function SettingsPage() {
               <div className="push-notifications-card">
                 <p>Receive instant browser notifications for new customer orders.</p>
                 
+                {permission === 'ios-install-required' && (
+                  <div className="toast warning">
+                    To receive push notifications on iPhone/iPad, add the POS to your Home Screen. Open <strong>https://khyennchyenn.co.in/pos</strong> in Safari, tap Share → Add to Home Screen, then open the POS from the Home Screen icon to enable notifications.
+                  </div>
+                )}
+
                 {permission === 'unsupported' && (
                   <div className="toast warning">
                     Push notifications are not supported in this browser
@@ -289,7 +295,7 @@ export default function SettingsPage() {
                   </div>
                 )}
                 
-                {isSubscribed ? (
+                {permission === 'ios-install-required' ? null : isSubscribed ? (
                   <div className="push-status enabled">
                     <span className="status-indicator">✓</span>
                     <span>Push notifications enabled</span>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { isIOSDevice, isStandaloneMode } from '../utils/pwaDetection';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
@@ -43,6 +44,17 @@ export const usePosPushNotifications = () => {
 
   // Check notification permission and subscription status
   useEffect(() => {
+    // iOS/iPadOS requires Home Screen (standalone) PWA for Web Push (iOS 16.4+).
+    // Show actionable guidance instead of generic "unsupported" when running in a normal Safari tab.
+    try {
+      const ios = isIOSDevice();
+      const standalone = isStandaloneMode();
+      if (ios && !standalone) {
+        setPermission('ios-install-required');
+        return;
+      }
+    } catch {}
+
     if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
       setPermission('unsupported');
       return;
@@ -137,6 +149,14 @@ export const usePosPushNotifications = () => {
   }, []);
 
   const subscribe = useCallback(async () => {
+    // iOS non-standalone must not attempt serviceWorker/push subscription
+    try {
+      if (isIOSDevice() && !isStandaloneMode()) {
+        alert('To receive push notifications on iPhone/iPad, add https://khyennchyenn.co.in/pos to your Home Screen and open the POS from the Home Screen icon.');
+        return false;
+      }
+    } catch {}
+
     if (!user || !VAPID_PUBLIC_KEY) {
       alert('Push notifications require authentication and VAPID key');
       return false;
