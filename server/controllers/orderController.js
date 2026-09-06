@@ -18,7 +18,7 @@ const { createNotificationForAdmins } = require("../utils/notificationService");
 const { parsePagination } = require("../utils/pagination");
 const thermalPrinter = require("../services/thermalPrinter");
 const WebPushService = require("../services/webPush");
-const { calculateDeliveryFee, getBaseDeliveryFee } = require("../utils/delivery");
+const { calculateDeliveryFee, getBaseDeliveryFee, MAX_DELIVERY_KM } = require("../utils/delivery");
 
 const ALLOWED_PAYMENT_METHODS = ["cash", "card", "upi", "wallet", "cod", "split"];
 const ALLOWED_ORDER_TYPES = ["dinein", "takeaway", "delivery"];
@@ -289,7 +289,7 @@ const createOrder = async (req, res) => {
   
   try {
     console.log("--- Step 1: Destructuring req.body ---");
-    const {
+    let {
       customerName,
       customerPhone,
       customerEmail,
@@ -552,6 +552,64 @@ const createOrder = async (req, res) => {
     const totalDiscount = Math.min(couponDiscount + finalDiscount, subtotal);
     console.log("Total discount:", totalDiscount);
 
+    // --- Step 10b: Authoritative delivery fee (server is source of truth) ---
+    // For dine-in/takeaway deliveryFee is always 0 and deliveryAddress is ignored.
+    // For delivery we validate distanceKm, enforce the 10 km cap, and recompute
+    // the fee as Math.max(baseFee, calculateDeliveryFee(distanceKm)) — exactly the
+    // same rule as the public website (server/utils/delivery.js). Client-supplied
+    // deliveryFee is never trusted.
+    let authoritativeDeliveryFee = 0;
+    let authoritativeDeliveryAddress = deliveryAddress;
+    let authoritativeDeliveryDistanceKm = 0;
+    if (orderType === "delivery") {
+      if (
+        !deliveryAddress ||
+        !String(deliveryAddress.line1 || "").trim() ||
+        !String(deliveryAddress.city || "").trim() ||
+        !String(deliveryAddress.state || "").trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "A complete delivery address (street, city, state) is required for delivery orders",
+        });
+      }
+      const distanceKm = Number(deliveryAddress.distanceKm);
+      if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Delivery distance (km) is required for delivery orders",
+        });
+      }
+      if (distanceKm > MAX_DELIVERY_KM) {
+        return res.status(400).json({
+          success: false,
+          message: `Delivery unavailable for this location (distance ${distanceKm} km exceeds ${MAX_DELIVERY_KM} km limit)`,
+        });
+      }
+      const baseFee = await getBaseDeliveryFee();
+      authoritativeDeliveryFee = Math.max(baseFee, calculateDeliveryFee(distanceKm));
+      authoritativeDeliveryDistanceKm = distanceKm;
+      authoritativeDeliveryAddress = {
+        line1: String(deliveryAddress.line1).trim(),
+        line2: String(deliveryAddress.line2 || "").trim() || undefined,
+        city: String(deliveryAddress.city).trim(),
+        state: String(deliveryAddress.state).trim(),
+        pincode: String(deliveryAddress.pincode || "").trim() || undefined,
+        distanceKm: authoritativeDeliveryDistanceKm,
+      };
+    } else {
+      authoritativeDeliveryFee = 0;
+      authoritativeDeliveryAddress = null;
+      authoritativeDeliveryDistanceKm = 0;
+    }
+    // Override any client-supplied values with the authoritative ones
+    deliveryAddress = authoritativeDeliveryAddress;
+    // deliveryFee variable is mutated to the authoritative value for total calc
+    // eslint-disable-next-line no-unused-vars
+    authoritativeDeliveryFee = authoritativeDeliveryFee;
+
+    console.log("Authoritative delivery:", { orderType, authoritativeDeliveryFee, authoritativeDeliveryDistanceKm });
+
     console.log("--- Step 11: Tax calculation ---");
     const isInterState = deliveryAddress && deliveryAddress.state && 
       deliveryAddress.state !== (await Settings.getValue("restaurant_state", ""));
@@ -586,12 +644,12 @@ const createOrder = async (req, res) => {
     }
 
     console.log("--- Step 14: Total calculation ---");
-    let total = subtotal - totalDiscount + totalTax + serviceCharge + Number(deliveryFee) - loyaltyPointsValue;
+    let total = subtotal - totalDiscount + totalTax + serviceCharge + Number(authoritativeDeliveryFee) - loyaltyPointsValue;
     total = Math.round(total * 100) / 100;
 
     const roundingAdjustment = Math.round(total) - total;
     total = Math.round(total);
-    console.log("Total calculated:", { subtotal, totalDiscount, totalTax, serviceCharge, deliveryFee: Number(deliveryFee) || 0, loyaltyPointsValue, total, roundingAdjustment });
+    console.log("Total calculated:", { subtotal, totalDiscount, totalTax, serviceCharge, deliveryFee: Number(authoritativeDeliveryFee) || 0, loyaltyPointsValue, total, roundingAdjustment });
 
     console.log("--- Split payment validation ---");
     if (paymentMethod === "split") {
@@ -713,7 +771,7 @@ const createOrder = async (req, res) => {
       paidAt: isPaidOnCreate ? new Date() : null,
       orderStatus: startConfirmed ? "confirmed" : "pending",
       deliveryAddress,
-      deliveryFee: Number(deliveryFee) || 0,
+      deliveryFee: Number(authoritativeDeliveryFee) || 0,
       pickupAt: pickupAt ? new Date(pickupAt) : null,
       notes: notes?.trim() || "",
       source,
@@ -1254,7 +1312,73 @@ const updateOrder = async (req, res) => {
     if (customerEmail !== undefined) order.customerEmail = customerEmail.trim().toLowerCase();
     if (notes !== undefined) order.notes = notes.trim();
     if (internalNotes !== undefined) order.internalNotes = internalNotes.trim();
-    if (deliveryAddress !== undefined) order.deliveryAddress = deliveryAddress;
+    // Delivery address update: for delivery orders revalidate distance and recompute fee.
+    if (deliveryAddress !== undefined) {
+      if (order.orderType === "delivery") {
+        if (
+          !deliveryAddress ||
+          !String(deliveryAddress.line1 || "").trim() ||
+          !String(deliveryAddress.city || "").trim() ||
+          !String(deliveryAddress.state || "").trim()
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: "A complete delivery address (street, city, state) is required for delivery orders",
+          });
+        }
+        const distanceKm = Number(deliveryAddress.distanceKm);
+        if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Delivery distance (km) is required for delivery orders",
+          });
+        }
+        if (distanceKm > MAX_DELIVERY_KM) {
+          return res.status(400).json({
+            success: false,
+            message: `Delivery unavailable for this location (distance ${distanceKm} km exceeds ${MAX_DELIVERY_KM} km limit)`,
+          });
+        }
+        const baseFee = await getBaseDeliveryFee();
+        const newDeliveryFee = Math.max(baseFee, calculateDeliveryFee(distanceKm));
+        const previousFee = Number(order.deliveryFee) || 0;
+        order.deliveryAddress = {
+          line1: String(deliveryAddress.line1).trim(),
+          line2: String(deliveryAddress.line2 || "").trim() || undefined,
+          city: String(deliveryAddress.city).trim(),
+          state: String(deliveryAddress.state).trim(),
+          pincode: String(deliveryAddress.pincode || "").trim() || undefined,
+          distanceKm,
+        };
+        order.deliveryFee = newDeliveryFee;
+        // Recalculate total so the new delivery fee is reflected without duplication.
+        // Preserve loyalty deduction already stored on the order.
+        const loyaltyConfigForUpdate = await LoyaltyConfig.getConfig();
+        const loyaltyValueForUpdate = (Number(order.loyaltyPointsUsed) || 0) * (Number(loyaltyConfigForUpdate.rupeePerPoint) || 0);
+        const newTotal = Math.round(
+          (Number(order.subtotal) || 0) -
+            (Number(order.discount) || 0) +
+            (Number(order.tax) || 0) +
+            (Number(order.serviceCharge) || 0) +
+            newDeliveryFee -
+            loyaltyValueForUpdate
+        );
+        order.total = newTotal;
+      } else {
+        // Non-delivery orders must not retain a delivery address/fee
+        order.deliveryAddress = null;
+        order.deliveryFee = 0;
+        const loyaltyConfigForUpdate = await LoyaltyConfig.getConfig();
+        const loyaltyValueForUpdate = (Number(order.loyaltyPointsUsed) || 0) * (Number(loyaltyConfigForUpdate.rupeePerPoint) || 0);
+        order.total = Math.round(
+          (Number(order.subtotal) || 0) -
+            (Number(order.discount) || 0) +
+            (Number(order.tax) || 0) +
+            (Number(order.serviceCharge) || 0) -
+            loyaltyValueForUpdate
+        );
+      }
+    }
     if (pickupAt !== undefined) order.pickupAt = pickupAt ? new Date(pickupAt) : null;
     order.updatedBy = req.user._id;
 
@@ -2053,8 +2177,21 @@ const editOrderItems = async (req, res) => {
     let deliveryFee = Math.round((Number(order.deliveryFee) || 0) * 100) / 100;
     if (order.orderType === "delivery" && order.deliveryAddress && order.deliveryAddress.distanceKm) {
       const distanceKm = Number(order.deliveryAddress.distanceKm);
+      if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
+        return fail(400, "Delivery distance (km) is required for delivery orders");
+      }
+      if (distanceKm > MAX_DELIVERY_KM) {
+        return fail(400, `Delivery unavailable for this location (distance ${distanceKm} km exceeds ${MAX_DELIVERY_KM} km limit)`);
+      }
       const base = await getBaseDeliveryFee();
       deliveryFee = Math.max(base, calculateDeliveryFee(distanceKm));
+    } else if (order.orderType === "delivery") {
+      // Delivery order must have a distance; if missing, keep existing fee but validate presence
+      if (!order.deliveryAddress || !order.deliveryAddress.distanceKm) {
+        // Keep existing fee; if no distance and no fee, still require distance for new calculations
+      }
+    } else {
+      deliveryFee = 0;
     }
 
     const loyaltyPointsUsed = Number(order.loyaltyPointsUsed) || 0;

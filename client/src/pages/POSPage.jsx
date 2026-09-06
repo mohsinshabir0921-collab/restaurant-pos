@@ -23,6 +23,7 @@ import {
 import { OUTCOME, decidePaymentOutcome } from "../lib/paymentOutcome";
 import SearchBox from "../components/SearchBox";
 import { getOrderItemSize, getOrderItemAddons } from "../utils/orderItem";
+import { calculateDeliveryFee, MAX_DELIVERY_KM } from "../website/utils/deliveryRadius";
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
 
@@ -338,7 +339,7 @@ export default function POSPage() {
   const [couponCode, setCouponCode] = useState("");
   const [loyaltyPointsUsed, setLoyaltyPointsUsed] = useState(0);
   const [deliveryAddress, setDeliveryAddress] = useState(null);
-  const [addressForm, setAddressForm] = useState({ line1: "", city: "", state: "", pincode: "" });
+  const [addressForm, setAddressForm] = useState({ line1: "", city: "", state: "", pincode: "", distanceKm: "" });
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
 
@@ -1113,7 +1114,7 @@ export default function POSPage() {
     setCouponCode("");
     setLoyaltyPointsUsed(0);
     setDeliveryAddress(null);
-    setAddressForm({ line1: "", city: "", state: "", pincode: "" });
+    setAddressForm({ line1: "", city: "", state: "", pincode: "", distanceKm: "" });
     setPickupDate("");
     setPickupTime("");
   };
@@ -1148,7 +1149,25 @@ export default function POSPage() {
 
     const loyaltyPointsValue = loyaltyPointsUsed > 0 ? pointsPerRupee * loyaltyPointsUsed : 0;
 
-    const finalTotal = Math.round((subtotal - totalDiscount + totalTax + serviceCharge - loyaltyPointsValue) * 100) / 100;
+    // Delivery fee: same banded rule as public website (server is authoritative)
+    let deliveryFee = 0;
+    let deliveryDistanceKm = 0;
+    let deliveryUnavailable = false;
+    if (orderType === "delivery") {
+      const rawDistance = deliveryAddress?.distanceKm ?? addressForm.distanceKm;
+      const km = Number(rawDistance);
+      if (Number.isFinite(km) && km > 0) {
+        deliveryDistanceKm = km;
+        if (km > MAX_DELIVERY_KM) {
+          deliveryUnavailable = true;
+          deliveryFee = 0;
+        } else {
+          deliveryFee = calculateDeliveryFee(km);
+        }
+      }
+    }
+
+    const finalTotal = Math.round((subtotal - totalDiscount + totalTax + serviceCharge + deliveryFee - loyaltyPointsValue) * 100) / 100;
 
     return {
       final: Math.round(finalTotal),
@@ -1158,6 +1177,9 @@ export default function POSPage() {
       totalTax,
       serviceCharge,
       loyaltyPointsValue,
+      deliveryFee,
+      deliveryDistanceKm,
+      deliveryUnavailable,
     };
   })();
 
@@ -1224,6 +1246,30 @@ export default function POSPage() {
         return;
       }
     }
+    if (orderType === "delivery") {
+      const candidate = deliveryAddress
+        ? deliveryAddress
+        : addressForm.line1?.trim() && String(addressForm.city || "").trim() && String(addressForm.state || "").trim()
+          ? { ...addressForm, distanceKm: Number(addressForm.distanceKm) }
+          : null;
+      if (!candidate || !String(candidate.line1 || "").trim() || !String(candidate.city || "").trim() || !String(candidate.state || "").trim()) {
+        setError("Complete delivery address (street, city, state) is required for delivery orders");
+        return;
+      }
+      const km = Number(candidate.distanceKm);
+      if (!Number.isFinite(km) || km <= 0) {
+        setError("Delivery distance (km) is required for delivery orders");
+        return;
+      }
+      if (km > MAX_DELIVERY_KM) {
+        setError(`Delivery unavailable for this location (distance ${km} km exceeds ${MAX_DELIVERY_KM} km limit)`);
+        return;
+      }
+    }
+    if (orderType === "delivery" && orderTotals.deliveryUnavailable) {
+      setError(`Delivery unavailable for this location (beyond ${MAX_DELIVERY_KM} km)`);
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -1241,7 +1287,23 @@ export default function POSPage() {
         notes: item.notes,
       }));
 
-      const finalDeliveryAddress = deliveryAddress || (addressForm.line1?.trim() ? addressForm : null);
+      const normalizedDeliveryAddress = (() => {
+        if (orderType !== "delivery") return null;
+        if (deliveryAddress) {
+          return { ...deliveryAddress, distanceKm: Number(deliveryAddress.distanceKm) };
+        }
+        if (addressForm.line1?.trim() && String(addressForm.city || "").trim() && String(addressForm.state || "").trim() && Number.isFinite(Number(addressForm.distanceKm)) && Number(addressForm.distanceKm) > 0) {
+          return {
+            line1: addressForm.line1.trim(),
+            city: addressForm.city.trim(),
+            state: addressForm.state.trim(),
+            pincode: addressForm.pincode.trim(),
+            distanceKm: Number(addressForm.distanceKm),
+          };
+        }
+        return null;
+      })();
+      const finalDeliveryAddress = normalizedDeliveryAddress;
 
       const orderData = {
         customerName,
@@ -1978,8 +2040,30 @@ export default function POSPage() {
                 <h4>Delivery Address</h4>
                 {deliveryAddress ? (
                   <div className="address-display">
-                    <span className="address-lines">{formatAddress(deliveryAddress)}</span>
-                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setDeliveryAddress(null)}>Change</button>
+                    <div>
+                      <span className="address-lines">{formatAddress(deliveryAddress)}</span>
+                      {deliveryAddress.distanceKm ? (
+                        <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                          Distance: {deliveryAddress.distanceKm} km
+                          {" · "}
+                          {Number(deliveryAddress.distanceKm) > MAX_DELIVERY_KM ? (
+                            <span style={{ color: "#c0392b", fontWeight: 700 }}>Delivery unavailable for this location</span>
+                          ) : (
+                            <span>Delivery Charge: {formatCurrency(calculateDeliveryFee(deliveryAddress.distanceKm))}</span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={() => {
+                      setAddressForm({
+                        line1: deliveryAddress.line1 || "",
+                        city: deliveryAddress.city || "",
+                        state: deliveryAddress.state || "",
+                        pincode: deliveryAddress.pincode || "",
+                        distanceKm: deliveryAddress.distanceKm ? String(deliveryAddress.distanceKm) : "",
+                      });
+                      setDeliveryAddress(null);
+                    }}>Change</button>
                   </div>
                 ) : (
                   <div className="address-form">
@@ -2009,15 +2093,55 @@ export default function POSPage() {
                       value={addressForm.state}
                       onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
                     />
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.1"
+                      placeholder="Delivery Distance (km) *"
+                      value={addressForm.distanceKm}
+                      onChange={(e) => setAddressForm({ ...addressForm, distanceKm: e.target.value })}
+                    />
+                    <p className="field-hint" style={{ fontSize: 12, color: "#666", margin: "4px 0 0" }}>
+                      Delivery fee: ₹10 up to 4 km, then ₹15 up to 10 km. Beyond 10 km delivery unavailable.
+                    </p>
+                    {(() => {
+                      const km = Number(addressForm.distanceKm);
+                      if (addressForm.distanceKm && Number.isFinite(km) && km > MAX_DELIVERY_KM) {
+                        return <p style={{ color: "#c0392b", fontSize: 12, margin: "4px 0 0" }}>Delivery unavailable for this location (exceeds {MAX_DELIVERY_KM} km)</p>;
+                      }
+                      if (addressForm.distanceKm && Number.isFinite(km) && km > 0 && km <= MAX_DELIVERY_KM) {
+                        return <p style={{ fontSize: 12, color: "#2c7a3a", margin: "4px 0 0" }}>Delivery charge: {formatCurrency(calculateDeliveryFee(km))}</p>;
+                      }
+                      return null;
+                    })()}
                     <button
                       type="button"
                       className="btn btn-primary"
-                      disabled={!addressForm.line1.trim()}
-                      onClick={() => setDeliveryAddress({ ...addressForm, line1: addressForm.line1.trim() })}
+                      disabled={!addressForm.line1.trim() || !String(addressForm.city || "").trim() || !String(addressForm.state || "").trim() || !Number.isFinite(Number(addressForm.distanceKm)) || Number(addressForm.distanceKm) <= 0}
+                      onClick={() => {
+                        const km = Number(addressForm.distanceKm);
+                        if (!Number.isFinite(km) || km <= 0) return;
+                        setDeliveryAddress({
+                          line1: addressForm.line1.trim(),
+                          city: addressForm.city.trim(),
+                          state: addressForm.state.trim(),
+                          pincode: addressForm.pincode.trim(),
+                          distanceKm: km,
+                        });
+                      }}
                     >
                       Save Address
                     </button>
                   </div>
+                )}
+                {orderTotals.deliveryUnavailable && (
+                  <p style={{ color: "#c0392b", fontSize: 13, marginTop: 8, fontWeight: 600 }}>Delivery unavailable for this location (beyond 10 km). Please choose a nearer address or change order type.</p>
+                )}
+                {!orderTotals.deliveryUnavailable && orderTotals.deliveryFee > 0 && (
+                  <p style={{ fontSize: 12, color: "#666", marginTop: 8 }}>
+                    Delivery Distance: {orderTotals.deliveryDistanceKm} km · Delivery Charge: {formatCurrency(orderTotals.deliveryFee)}
+                  </p>
                 )}
               </div>
             )}
@@ -2231,6 +2355,18 @@ export default function POSPage() {
               {orderTotals.serviceCharge > 0 && (
                 <div className="summary-row"><span>Service Charge</span><span>{formatCurrency(orderTotals.serviceCharge)}</span></div>
               )}
+              {orderType === "delivery" && orderTotals.deliveryUnavailable && (
+                <div className="summary-row" style={{ color: "#c0392b", fontWeight: 600 }}><span>Delivery</span><span>Unavailable</span></div>
+              )}
+              {orderType === "delivery" && !orderTotals.deliveryUnavailable && orderTotals.deliveryFee > 0 && (
+                <div className="summary-row"><span>Delivery{orderTotals.deliveryDistanceKm ? ` (${orderTotals.deliveryDistanceKm} km)` : ""}</span><span>{formatCurrency(orderTotals.deliveryFee)}</span></div>
+              )}
+              {orderType === "delivery" && !orderTotals.deliveryUnavailable && orderTotals.deliveryDistanceKm > 0 && orderTotals.deliveryFee === 0 && (
+                <div className="summary-row"><span>Delivery{` (${orderTotals.deliveryDistanceKm} km)`}</span><span>{formatCurrency(0)}</span></div>
+              )}
+              {orderTotals.deliveryUnavailable && (
+                <div style={{ fontSize: 12, color: "#c0392b", marginTop: 4 }}>Delivery unavailable for this location</div>
+              )}
               {orderTotals.loyaltyPointsValue > 0 && (
                 <div className="summary-row discount"><span>Loyalty</span><span>−{formatCurrency(orderTotals.loyaltyPointsValue)}</span></div>
               )}
@@ -2251,7 +2387,7 @@ export default function POSPage() {
             <button
               className="place-order-btn"
               onClick={handlePlaceOrder}
-              disabled={loading || cartItems.length === 0 || (orderType === "dinein" && !selectedTable) || (paymentMethod === "split" && !splitValid)}
+              disabled={loading || cartItems.length === 0 || (orderType === "dinein" && !selectedTable) || (paymentMethod === "split" && !splitValid) || (orderType === "delivery" && orderTotals.deliveryUnavailable)}
             >
               {loading ? (
                 <><span className="spinner" style={{ borderColor: "rgba(255,255,255,0.4)", borderTopColor: "#fff" }}></span> Placing Order...</>
