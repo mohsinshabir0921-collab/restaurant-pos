@@ -31,6 +31,38 @@ const posDir = join(dist, "pos");
 mkdirSync(posDir, { recursive: true });
 renameSync(posHtml, join(posDir, "index.html"));
 
+// POS deep-link directory entry points (for Cloudflare Pages manual deploy without Functions).
+// Each route gets a static index.html copy of the POS shell so hard refresh of
+// /pos/<route> does not fall through to the public website SPA.
+const posRoutes = [
+  "dashboard",
+  "kitchen",
+  "delivery",
+  "tracking",
+  "reports",
+  "menu",
+  "categories",
+  "tables",
+  "customers",
+  "coupons",
+  "banners",
+  "staff",
+  "settings",
+  "inventory",
+  "recipes",
+  "purchase-orders",
+  "waste",
+  "communications",
+  "loyalty",
+  "orders",
+];
+const posIndex = join(posDir, "index.html");
+for (const route of posRoutes) {
+  const dir = join(posDir, route);
+  mkdirSync(dir, { recursive: true });
+  cpSync(posIndex, join(dir, "index.html"));
+}
+
 // Remove any stale /website output left over from previous builds
 rmSync(join(dist, "website"), { recursive: true, force: true });
 
@@ -41,3 +73,6 @@ for (const route of websiteRoutes) {
   console.log(`  /${route}          -> ${route}/index.html`);
 }
 console.log("  /pos               -> pos/index.html (POS)");
+for (const route of posRoutes) {
+  console.log(`  /pos/${route}          -> pos/${route}/index.html (POS)`);
+}
