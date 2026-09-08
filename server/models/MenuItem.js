@@ -104,7 +104,7 @@ menuItemSchema.methods.getPriceForSize = function (size) {
 // Ensure halfPrice/fullPrice always have a value after save — robust for legacy
 // documents even when only unrelated fields (name, description, etc.) are touched.
 // Also keep price as the Half-price compatibility mirror for Half/Full items.
-menuItemSchema.pre("save", function (next) {
+menuItemSchema.pre("save", function () {
   // Always populate missing half/full, regardless of which field triggered save
   if (this.halfPrice == null || !Number.isFinite(Number(this.halfPrice))) {
     this.halfPrice = Number(this.price) || 0;
@@ -127,7 +127,6 @@ menuItemSchema.pre("save", function (next) {
   } catch (_) {
     // ignore detection errors — do not block save
   }
-  next();
 });
 
 menuItemSchema.statics.getAvailableByCategory = async function (categoryId = null) {
