@@ -228,7 +228,11 @@ export default function MenuPage() {
                           )}
                           <div className="menu-card-bottom">
                             <span className="menu-card-price">
-                              <span className="menu-card-price-label">from</span> {formatPrice(item.price)}
+                              {item.halfPrice != null && item.fullPrice != null && Number(item.halfPrice) !== Number(item.fullPrice) ? (
+                                <><span className="menu-card-price-label">Half</span> {formatPrice(item.halfPrice)} <span className="menu-card-price-label">Full</span> {formatPrice(item.fullPrice)}</>
+                              ) : (
+                                <><span className="menu-card-price-label">from</span> {formatPrice(item.price)}</>
+                              )}
                             </span>
                             <button
                               type="button"

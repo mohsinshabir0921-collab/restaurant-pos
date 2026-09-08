@@ -21,6 +21,8 @@ export default function MenuPage() {
     name: "",
     description: "",
     price: "",
+    halfPrice: "",
+    fullPrice: "",
     category: "",
     isVeg: true,
     spiceLevel: "none",
@@ -96,6 +98,8 @@ export default function MenuPage() {
     const data = {
       ...formData,
       price: Number(formData.price),
+      halfPrice: formData.halfPrice === "" ? undefined : Number(formData.halfPrice),
+      fullPrice: formData.fullPrice === "" ? undefined : Number(formData.fullPrice),
       prepTime: Number(formData.prepTime),
       taxRate: Number(formData.taxRate),
       tags: formData.tags.split(",").map(t => t.trim()).filter(Boolean),
@@ -128,10 +132,21 @@ export default function MenuPage() {
   const openModal = (item = null) => {
     if (item) {
       setEditingItem(item);
+      // Legacy fallback: if halfPrice/fullPrice null, derive Full from price + delta so
+      // editing before migration does not collapse Full 550 → Half 320
+      const sizeMod = Array.isArray(item.modifiers) ? item.modifiers.find((m) => m && /size|variant/i.test(m.name || "")) : null;
+      const halfOpt = sizeMod?.options?.find((o) => String(o.name || "").toLowerCase().trim() === "half");
+      const fullOpt = sizeMod?.options?.find((o) => String(o.name || "").toLowerCase().trim() === "full");
+      const hasHalfFull = !!halfOpt && !!fullOpt;
+      const fallbackHalf = hasHalfFull ? (Number(item.price) || 0) + (Number(halfOpt?.price) || 0) : (Number(item.price) || 0);
+      const fallbackFull = hasHalfFull ? (Number(item.price) || 0) + (Number(fullOpt?.price) || 0) : (Number(item.price) || 0);
+      setEditingItem(item);
       setFormData({
         name: item.name,
         description: item.description || "",
         price: item.price,
+        halfPrice: item.halfPrice ?? fallbackHalf ?? "",
+        fullPrice: item.fullPrice ?? fallbackFull ?? "",
         category: item.category?._id || item.category || "",
         isVeg: item.isVeg !== false,
         spiceLevel: item.spiceLevel || "none",
@@ -149,6 +164,8 @@ export default function MenuPage() {
         name: "",
         description: "",
         price: "",
+        halfPrice: "",
+        fullPrice: "",
         category: "",
         isVeg: true,
         spiceLevel: "none",
@@ -271,7 +288,13 @@ export default function MenuPage() {
                   </div>
                 </div>
                 <div className="menu-item-body">
-                  <div className="menu-item-price">₹{item.price}</div>
+                  <div className="menu-item-price">
+                    {item.halfPrice != null && item.fullPrice != null && Number(item.halfPrice) !== Number(item.fullPrice) ? (
+                      <span>Half ₹{item.halfPrice} · Full ₹{item.fullPrice}</span>
+                    ) : (
+                      <span>₹{item.price}</span>
+                    )}
+                  </div>
                   <div className="menu-item-meta">{item.prepTime} min</div>
                   <span className={`status-badge ${item.isAvailable ? "active" : "inactive"}`}>
                     {item.isAvailable ? "Available" : "Unavailable"}
@@ -314,6 +337,14 @@ export default function MenuPage() {
                 <div className="form-group">
                   <label>Price *</label>
                   <input type="number" step="0.01" min="0" value={formData.price} onChange={e => setFormData(d => ({ ...d, price: e.target.value }))} required />
+                </div>
+                <div className="form-group">
+                  <label>Half Price</label>
+                  <input type="number" step="0.01" min="0" value={formData.halfPrice} onChange={e => setFormData(d => ({ ...d, halfPrice: e.target.value }))} placeholder="Same as Price" />
+                </div>
+                <div className="form-group">
+                  <label>Full Price</label>
+                  <input type="number" step="0.01" min="0" value={formData.fullPrice} onChange={e => setFormData(d => ({ ...d, fullPrice: e.target.value }))} placeholder="Same as Price" />
                 </div>
                 <div className="form-group">
                   <label>Prep Time (min)</label>

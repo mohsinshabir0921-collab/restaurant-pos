@@ -42,6 +42,25 @@ export const CartProvider = ({ children }) => {
         ? menuItem.category
         : menuItem.category?.name || "";
 
+    // Resolve exact Half/Full price from menuItem; if halfPrice/fullPrice missing (legacy),
+    // fall back to price + delta so Full 550 (price 320 + delta 230) still resolves correctly
+    const sizeMod = normalizedModifiers.find((m) => /size|variant/i.test(m.name || ""));
+    let resolvedPrice = Number(menuItem.price) || 0;
+    if (sizeMod) {
+      const s = String(sizeMod.option || "").toLowerCase().trim();
+      const hasHalf = menuItem.halfPrice != null && Number.isFinite(Number(menuItem.halfPrice));
+      const hasFull = menuItem.fullPrice != null && Number.isFinite(Number(menuItem.fullPrice));
+      if (s === "half" && hasHalf) resolvedPrice = Number(menuItem.halfPrice);
+      else if (s === "full" && hasFull) resolvedPrice = Number(menuItem.fullPrice);
+      else if (s === "half" || s === "full") {
+        // Legacy fallback: use delta stored in normalizedModifiers (price is 0 for new, delta for legacy)
+        // For new code normalizedModifiers already has price 0 for Half/Full, so this becomes price;
+        // for legacy ItemModal before fix it carried delta 230, so price+delta = 550
+        const delta = normalizedModifiers.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+        resolvedPrice = (Number(menuItem.price) || 0) + delta;
+      }
+    }
+
     setCartItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) =>
@@ -63,7 +82,7 @@ export const CartProvider = ({ children }) => {
         id: `${menuItem._id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         menuItemId: menuItem._id,
         name: menuItem.name,
-        price: Number(menuItem.price) || 0,
+        price: resolvedPrice,
         qty: quantity,
         isVeg: menuItem.isVeg !== undefined ? menuItem.isVeg : true,
         image: menuItem.image || "",

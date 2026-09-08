@@ -11,16 +11,47 @@ export const AuthProvider = ({ children }) => {
   const loadUser = useCallback(async () => {
     const token = localStorage.getItem("token");
     const savedUser = localStorage.getItem("user");
-    
-    if (token && savedUser) {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    // Trust localStorage for immediate render (prevents flash), then verify with server
+    // The verification is silent: if access token expired, the interceptor will
+    // refresh using the stored refreshToken and retry getMe without showing an error
+    if (savedUser) {
       try {
         setUser(JSON.parse(savedUser));
       } catch {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
+        setLoading(false);
+        return;
       }
     }
-    setLoading(false);
+    try {
+      const response = await authAPI.getMe();
+      const userData = response.data.user;
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+    } catch (err) {
+      // If getMe failed with 401, the api interceptor already attempted silent refresh
+      // If refresh succeeded, the retry would have succeeded and we wouldn't be here
+      // If we are here, refresh failed or no refresh token — clear stale session
+      // Do not show a raw refresh error; ProtectedRoute will redirect to /login
+      const stillHasToken = localStorage.getItem("token");
+      if (!stillHasToken) {
+        setUser(null);
+        localStorage.removeItem("user");
+      } else if (err.response?.status === 401) {
+        // Genuine 401 after refresh attempt — session expired, clear and let redirect handle
+        // The interceptor's clearAuth already redirected to /pos/login for POS, but
+        // for safety ensure local state is cleared without forcing a hard redirect here
+        // (ProtectedRoute will handle redirect)
+        setUser(null);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

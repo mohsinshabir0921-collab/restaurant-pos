@@ -142,6 +142,8 @@ const createMenuItem = async (req, res) => {
       name,
       description,
       price,
+      halfPrice,
+      fullPrice,
       category,
       isVeg,
       spiceLevel,
@@ -196,6 +198,17 @@ const createMenuItem = async (req, res) => {
     if (displayOrder !== undefined && !Number.isFinite(numericDisplayOrder)) {
       return res.status(400).json({ success: false, message: "Display order must be a valid number" });
     }
+    let numericHalfPrice = halfPrice === "" || halfPrice === undefined || halfPrice === null ? null : Number(halfPrice);
+    let numericFullPrice = fullPrice === "" || fullPrice === undefined || fullPrice === null ? null : Number(fullPrice);
+    if (numericHalfPrice !== null && (!Number.isFinite(numericHalfPrice) || numericHalfPrice < 0)) {
+      return res.status(400).json({ success: false, message: "Half price must be a valid non-negative number" });
+    }
+    if (numericFullPrice !== null && (!Number.isFinite(numericFullPrice) || numericFullPrice < 0)) {
+      return res.status(400).json({ success: false, message: "Full price must be a valid non-negative number" });
+    }
+    // Default half/full to base price when not provided, so existing single-price items keep working
+    if (numericHalfPrice === null) numericHalfPrice = numericPrice;
+    if (numericFullPrice === null) numericFullPrice = numericPrice;
 
     const maxOrder = await MenuItem.findOne({ category }).sort({ displayOrder: -1 }).select("displayOrder").lean();
     const nextOrder = maxOrder ? maxOrder.displayOrder + 1 : 0;
@@ -204,6 +217,8 @@ const createMenuItem = async (req, res) => {
       name: name.trim(),
       description: description?.trim() || "",
       price: numericPrice,
+      halfPrice: numericHalfPrice,
+      fullPrice: numericFullPrice,
       category,
       isVeg: isVeg !== undefined ? isVeg : true,
       spiceLevel: spiceLevel || "none",
@@ -242,6 +257,8 @@ const updateMenuItem = async (req, res) => {
       name,
       description,
       price,
+      halfPrice,
+      fullPrice,
       category,
       isVeg,
       spiceLevel,
@@ -323,6 +340,27 @@ const updateMenuItem = async (req, res) => {
     }
     if (tags !== undefined) item.tags = Array.isArray(tags) ? tags : [];
     if (modifiers !== undefined) item.modifiers = Array.isArray(modifiers) ? modifiers : [];
+    if (halfPrice !== undefined) {
+      const numericHalfPrice = halfPrice === "" || halfPrice === null ? NaN : Number(halfPrice);
+      if (!Number.isFinite(numericHalfPrice) || numericHalfPrice < 0) {
+        return res.status(400).json({ success: false, message: "Half price must be a valid non-negative number" });
+      }
+      item.halfPrice = numericHalfPrice;
+    }
+    if (fullPrice !== undefined) {
+      const numericFullPrice = fullPrice === "" || fullPrice === null ? NaN : Number(fullPrice);
+      if (!Number.isFinite(numericFullPrice) || numericFullPrice < 0) {
+        return res.status(400).json({ success: false, message: "Full price must be a valid non-negative number" });
+      }
+      item.fullPrice = numericFullPrice;
+    }
+    // Keep half/full in sync with price if price changed and half/full not explicitly set
+    if (price !== undefined && halfPrice === undefined && item.halfPrice == null) {
+      item.halfPrice = item.price;
+    }
+    if (price !== undefined && fullPrice === undefined && item.fullPrice == null) {
+      item.fullPrice = item.price;
+    }
 
     await item.save();
 

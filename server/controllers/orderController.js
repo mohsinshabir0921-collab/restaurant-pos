@@ -36,6 +36,47 @@ const extractItemSize = (modifiers) => {
   );
   return sizeMod && sizeMod.option ? sizeMod.option : "";
 };
+
+// Enforce canonical Half/Full pricing server-side: if a POS client sends an
+// arbitrary price for a Half/Full item, correct it to the authoritative
+// halfPrice/fullPrice from the menu. Keeps POS and website on same source
+// and is safe for existing flows (non-Half/Full sizes pass through).
+const correctHalfFullPrices = async (cleanItems) => {
+  for (const ci of cleanItems) {
+    if (!ci.menuItemId) continue;
+    const s = String(ci.size || "").toLowerCase().trim();
+    if (s !== "half" && s !== "full") continue;
+    try {
+      const menuItem = await MenuItem.findById(ci.menuItemId).lean();
+      if (!menuItem) continue;
+      const expected = s === "half" ? menuItem.halfPrice : menuItem.fullPrice;
+      if (expected == null || !Number.isFinite(Number(expected))) continue;
+      const clientPrice = Number(ci.price);
+      if (!Number.isFinite(clientPrice) || Math.abs(clientPrice - Number(expected)) > 0.01) {
+        console.log(`Correcting Half/Full price for ${ci.name} size ${s}: client ${clientPrice} → ${expected}`);
+        ci.price = Number(expected);
+        // normalize modifiers delta to 0 for Half/Full so stored order is clean
+        if (Array.isArray(ci.modifiers)) {
+          ci.modifiers = ci.modifiers.map((m) =>
+            SIZE_MODIFIER_PATTERN.test(m.name || "") ? { ...m, price: 0 } : m
+          );
+        }
+      } else if (Array.isArray(ci.modifiers)) {
+        // even when price matches, ensure stored delta is 0
+        const hasHalfFullDelta = ci.modifiers.some(
+          (m) => SIZE_MODIFIER_PATTERN.test(m.name || "") && Number(m.price) !== 0
+        );
+        if (hasHalfFullDelta) {
+          ci.modifiers = ci.modifiers.map((m) =>
+            SIZE_MODIFIER_PATTERN.test(m.name || "") ? { ...m, price: 0 } : m
+          );
+        }
+      }
+    } catch (e) {
+      console.log("Half/Full price correction skipped:", e.message);
+    }
+  }
+};
 const ALLOWED_ORDER_STATUSES = [
   "pending",
   "confirmed",
@@ -512,6 +553,8 @@ const createOrder = async (req, res) => {
       size: (item.size && String(item.size).trim()) || extractItemSize(item.modifiers),
       notes: item.notes?.trim() || "",
     }));
+    // Server-side Half/Full enforcement: correct any client-supplied Half/Full price
+    await correctHalfFullPrices(cleanItems);
     console.log("Clean items built:", cleanItems.length, "items");
 
     console.log("--- Step 8: Calculating subtotal ---");
@@ -1456,6 +1499,7 @@ const addItemsToOrder = async (req, res) => {
       size: (item.size && String(item.size).trim()) || extractItemSize(item.modifiers),
       notes: item.notes?.trim() || "",
     }));
+    await correctHalfFullPrices(cleanItems);
 
     order.items.push(...cleanItems);
     
@@ -1958,8 +2002,25 @@ const validateEditItem = async (item) => {
   }
 
   const sizeMod = cleanMods.find((m) => SIZE_MODIFIER_PATTERN.test(m.name));
-  const modifierPrice = cleanMods.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
-  const price = Math.round(((Number(menuItem.price) || 0) + modifierPrice) * 100) / 100;
+  // Half/Full pricing is independent: use halfPrice/fullPrice exactly, ignoring modifier delta
+  let price;
+  if (sizeMod) {
+    const s = String(sizeMod.option || "").toLowerCase().trim();
+    if (s === "half" && menuItem.halfPrice != null && Number.isFinite(Number(menuItem.halfPrice))) {
+      price = Math.round(Number(menuItem.halfPrice) * 100) / 100;
+      // Ensure modifier price is 0 for Half/Full so stored delta doesn't affect totals
+      cleanMods.forEach((m) => { if (SIZE_MODIFIER_PATTERN.test(m.name)) m.price = 0; });
+    } else if (s === "full" && menuItem.fullPrice != null && Number.isFinite(Number(menuItem.fullPrice))) {
+      price = Math.round(Number(menuItem.fullPrice) * 100) / 100;
+      cleanMods.forEach((m) => { if (SIZE_MODIFIER_PATTERN.test(m.name)) m.price = 0; });
+    } else {
+      const modifierPrice = cleanMods.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+      price = Math.round(((Number(menuItem.price) || 0) + modifierPrice) * 100) / 100;
+    }
+  } else {
+    const modifierPrice = cleanMods.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+    price = Math.round(((Number(menuItem.price) || 0) + modifierPrice) * 100) / 100;
+  }
 
   return {
     name: menuItem.name,

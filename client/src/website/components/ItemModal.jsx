@@ -33,13 +33,29 @@ export default function ItemModal({ item, onClose }) {
   if (!item) return null;
 
   const modifiers = Array.isArray(item.modifiers) ? item.modifiers : [];
-  const unitPrice =
-    Number(item.price) +
-    modifiers.reduce((sum, mod) => {
+  const getPriceForOption = (optName) => {
+    const s = String(optName || "").toLowerCase().trim();
+    if (s === "half" && item.halfPrice != null && Number.isFinite(Number(item.halfPrice))) return Number(item.halfPrice);
+    if (s === "full" && item.fullPrice != null && Number.isFinite(Number(item.fullPrice))) return Number(item.fullPrice);
+    return null;
+  };
+  const unitPrice = (() => {
+    // If any selected option is Half/Full, use that exact price; otherwise base+delta
+    for (const mod of modifiers) {
       const selectedOption = selected[mod._id] || mod.options?.[0]?._id;
       const option = mod.options?.find((opt) => opt._id === selectedOption);
-      return sum + (option ? Number(option.price) : 0);
-    }, 0);
+      const exact = option ? getPriceForOption(option.name) : null;
+      if (exact !== null) return exact;
+    }
+    return (
+      Number(item.price) +
+      modifiers.reduce((sum, mod) => {
+        const selectedOption = selected[mod._id] || mod.options?.[0]?._id;
+        const option = mod.options?.find((opt) => opt._id === selectedOption);
+        return sum + (option ? Number(option.price) : 0);
+      }, 0)
+    );
+  })();
   const total = unitPrice * qty;
 
   const handleOptionChange = (modId, optionId) => {
@@ -50,10 +66,15 @@ export default function ItemModal({ item, onClose }) {
     const normalizedModifiers = modifiers.map((mod) => {
       const optionId = selected[mod._id] || mod.options?.[0]?._id;
       const option = mod.options?.find((opt) => opt._id === optionId);
+      const s = String(option?.name || "").toLowerCase().trim();
+      const isHalfFullOption = s === "half" || s === "full";
+      const hasHalfFullPrice = item.halfPrice != null || item.fullPrice != null;
+      // Only zero delta when independent Half/Full price exists; legacy items keep delta
+      const isHalfFull = isHalfFullOption && hasHalfFullPrice;
       return {
         name: mod.name,
         option: option?.name || "Default",
-        price: option ? Number(option.price) : 0,
+        price: isHalfFull ? 0 : option ? Number(option.price) : 0,
       };
     });
     addToCart(item, qty, normalizedModifiers, notes);
@@ -100,6 +121,9 @@ export default function ItemModal({ item, onClose }) {
                   <div className="modifier-options">
                     {mod.options.map((opt) => {
                       const isSelected = (selected[mod._id] || mod.options?.[0]?._id) === opt._id;
+                      const exact = getPriceForOption(opt.name);
+                      const displayPrice = exact !== null ? exact : Number(item.price) + Number(opt.price);
+                      const showDelta = exact === null && Number(opt.price) > 0;
                       return (
                         <label key={opt._id} className={`modifier-option ${isSelected ? "selected" : ""}`}>
                           <input
@@ -110,9 +134,11 @@ export default function ItemModal({ item, onClose }) {
                             onChange={() => handleOptionChange(mod._id, opt._id)}
                           />
                           <span className="modifier-option-name">{opt.name}</span>
-                          {Number(opt.price) > 0 && (
+                          {exact !== null ? (
+                            <span className="modifier-option-price">{formatPrice(displayPrice)}</span>
+                          ) : showDelta ? (
                             <span className="modifier-option-price">+{formatPrice(opt.price)}</span>
-                          )}
+                          ) : null}
                         </label>
                       );
                     })}

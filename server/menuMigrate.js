@@ -9,10 +9,13 @@ const { imagePathForName } = require("./menuImages");
 // Build the MenuItem document fields for a given source item + resolved category id.
 function toMenuItemDoc(item, categoryId) {
   const basePrice = item.sizes ? item.sizes[0].price : item.price;
+  const isHalfFull = item.sizes && item.sizes.length === 2 && item.sizes[0].label === "Half" && item.sizes[1].label === "Full";
   return {
     name: item.name,
     description: item.description || "",
     price: basePrice,
+    halfPrice: isHalfFull ? item.sizes[0].price : basePrice,
+    fullPrice: isHalfFull ? item.sizes[1].price : basePrice,
     category: categoryId,
     isVeg: item.isVeg !== undefined ? item.isVeg : true,
     prepTime: PREP[item.category] || 15,

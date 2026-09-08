@@ -1051,6 +1051,12 @@ export default function POSPage() {
 
   // Size/variant selection for items that define a "Size" modifier.
   const [sizePick, setSizePick] = useState(null);
+  const getPOSItemPriceForSize = (item, sizeName) => {
+    const s = String(sizeName || "").toLowerCase().trim();
+    if (s === "half" && item.halfPrice != null && Number.isFinite(Number(item.halfPrice))) return Number(item.halfPrice);
+    if (s === "full" && item.fullPrice != null && Number.isFinite(Number(item.fullPrice))) return Number(item.fullPrice);
+    return null;
+  };
   const handleMenuClick = (item) => {
     if (item.modifiers?.length > 0) {
       setSizePick(item);
@@ -1059,7 +1065,10 @@ export default function POSPage() {
     addToCart(item);
   };
   const confirmSize = (item, option) => {
-    const delta = Number(option.price) || 0;
+    const exact = getPOSItemPriceForSize(item, option.name);
+    const isHalfFull = exact !== null;
+    const delta = isHalfFull ? 0 : Number(option.price) || 0;
+    const price = isHalfFull ? exact : (Number(item.price) || 0) + delta;
     const sig = JSON.stringify([{ name: "Size", option: option.name }]);
     setCartItems((prev) => {
       const idx = prev.findIndex((i) => i.menuItemId === item._id && JSON.stringify(i.modifiers) === sig);
@@ -1074,7 +1083,7 @@ export default function POSPage() {
           qty: 1,
           modifiers: [{ name: "Size", option: option.name, price: delta }],
           notes: "",
-          price: (Number(item.price) || 0) + delta,
+          price,
         },
       ];
     });
@@ -1876,7 +1885,9 @@ export default function POSPage() {
                 </div>
               ) : (
                 <div className="menu-grid">
-                  {filteredMenuItems.map(item => (
+                  {filteredMenuItems.map(item => {
+                    const hasHalfFull = item.halfPrice != null && item.fullPrice != null && Number(item.halfPrice) !== Number(item.fullPrice);
+                    return (
                     <button key={item._id} className="menu-item-card" onClick={() => handleMenuClick(item)}>
                       <div className="item-header">
                         <span className="item-category">{item.category?.name}</span>
@@ -1884,11 +1895,11 @@ export default function POSPage() {
                       </div>
                       <h4>{item.name}</h4>
                       <div className="menu-item-footer">
-                        <span className="item-price">{formatCurrency(item.price)}</span>
+                        <span className="item-price">{hasHalfFull ? `${formatCurrency(item.halfPrice)} / ${formatCurrency(item.fullPrice)}` : formatCurrency(item.price)}</span>
                         <span className="menu-item-add"><IconPlus size={14} /></span>
                       </div>
                     </button>
-                  ))}
+                  );})}
                 </div>
               )}
             </div>
@@ -1908,7 +1919,10 @@ export default function POSPage() {
                 <h3 style={{ marginTop: 0 }}>{sizePick.name}</h3>
                 <p style={{ color: "#666", marginTop: 0 }}>Select size</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {(sizePick.modifiers?.find((m) => m.name === "Size") || sizePick.modifiers?.[0])?.options?.map((opt) => (
+                  {(sizePick.modifiers?.find((m) => m.name === "Size") || sizePick.modifiers?.[0])?.options?.map((opt) => {
+                    const exact = getPOSItemPriceForSize(sizePick, opt.name);
+                    const displayPrice = exact !== null ? exact : (Number(sizePick.price) || 0) + (Number(opt.price) || 0);
+                    return (
                     <button
                       key={opt._id || opt.name}
                       type="button"
@@ -1916,9 +1930,9 @@ export default function POSPage() {
                       onClick={() => confirmSize(sizePick, opt)}
                     >
                       <span>{opt.name}</span>
-                      <span>{formatCurrency((Number(sizePick.price) || 0) + (Number(opt.price) || 0))}</span>
+                      <span>{formatCurrency(displayPrice)}</span>
                     </button>
-                  ))}
+                  );})}
                 </div>
                 <button
                   type="button"

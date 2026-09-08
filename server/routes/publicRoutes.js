@@ -143,15 +143,33 @@ const validateAndBuildItems = async (items) => {
           error.status = 400;
           throw error;
         }
-        modifiers.push({ name: group.name, option: option.name, price: option.price });
+        // For Half/Full sizes the modifier price is 0 and the true price is halfPrice/fullPrice
+        const isHalfFull = /half|full/i.test(option.name) || /size|variant/i.test(group.name || "");
+        const lower = String(option.name || "").toLowerCase().trim();
+        if ((lower === "half" || lower === "full") && (dbItem.halfPrice != null || dbItem.fullPrice != null)) {
+          modifiers.push({ name: group.name, option: option.name, price: 0 });
+        } else {
+          modifiers.push({ name: group.name, option: option.name, price: option.price });
+        }
       }
+    }
+
+    // Resolve exact Half/Full price from DB if a Half/Full size was selected
+    let resolvedPrice = Number(dbItem.price) || 0;
+    const sizeMod = modifiers.find((m) => /size|variant/i.test(m.name || ""));
+    if (sizeMod) {
+      const s = String(sizeMod.option || "").toLowerCase().trim();
+      if (s === "half" && dbItem.halfPrice != null && Number.isFinite(Number(dbItem.halfPrice))) resolvedPrice = Number(dbItem.halfPrice);
+      else if (s === "full" && dbItem.fullPrice != null && Number.isFinite(Number(dbItem.fullPrice))) resolvedPrice = Number(dbItem.fullPrice);
+      else resolvedPrice = Number(dbItem.price) + modifiers.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
+    } else {
+      resolvedPrice = Number(dbItem.price) + modifiers.reduce((sum, m) => sum + (Number(m.price) || 0), 0);
     }
 
     return {
       menuItemId: dbItem._id,
       name: dbItem.name,
-      // Base price + any selected modifier/size deltas (e.g. Half/Full, R/M/L/XL).
-      price: dbItem.price + modifiers.reduce((sum, m) => sum + (Number(m.price) || 0), 0),
+      price: resolvedPrice,
       qty,
       isVeg: dbItem.isVeg,
       taxRate: dbItem.taxRate || 0,

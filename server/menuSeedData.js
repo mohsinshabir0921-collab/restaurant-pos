@@ -173,16 +173,19 @@ const menuItems = [
 ];
 
 // Build a required "Size" modifier whose option prices are deltas from the base.
+// For Half/Full items the price is independent (halfPrice/fullPrice) so deltas are 0.
+// For other size types (Regular/Large, R/M/L/XL) we keep the delta model.
 function buildSizeModifier(item) {
   if (!item.sizes || item.sizes.length === 0) return [];
   const base = item.sizes[0].price;
+  const isHalfFull = item.sizes.length === 2 && item.sizes[0].label === "Half" && item.sizes[1].label === "Full";
   return [
     {
       name: "Size",
       required: true,
       options: item.sizes.map((s, i) => ({
         name: s.label,
-        price: s.price - base,
+        price: isHalfFull ? 0 : s.price - base,
         isDefault: i === 0,
       })),
     },
