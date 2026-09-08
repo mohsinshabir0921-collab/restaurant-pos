@@ -90,6 +90,15 @@ export default function MenuPage() {
     });
   }, [menuItems, menuSearch]);
 
+  // Derive Half/Full strictly from option NAMES, not prices/deltas (post-migration price is 0)
+  const hasHalfFull = useMemo(() => {
+    const mods = Array.isArray(formData.modifiers) ? formData.modifiers : [];
+    const sizeMod = mods.find((m) => m && /size|variant/i.test(m.name || ""));
+    if (!sizeMod || !Array.isArray(sizeMod.options)) return false;
+    const names = sizeMod.options.map((o) => String(o.name || "").toLowerCase().trim());
+    return names.includes("half") && names.includes("full");
+  }, [formData.modifiers]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -338,14 +347,18 @@ export default function MenuPage() {
                   <label>Price *</label>
                   <input type="number" step="0.01" min="0" value={formData.price} onChange={e => setFormData(d => ({ ...d, price: e.target.value }))} required />
                 </div>
-                <div className="form-group">
-                  <label>Half Price</label>
-                  <input type="number" step="0.01" min="0" value={formData.halfPrice} onChange={e => setFormData(d => ({ ...d, halfPrice: e.target.value }))} placeholder="Same as Price" />
-                </div>
-                <div className="form-group">
-                  <label>Full Price</label>
-                  <input type="number" step="0.01" min="0" value={formData.fullPrice} onChange={e => setFormData(d => ({ ...d, fullPrice: e.target.value }))} placeholder="Same as Price" />
-                </div>
+                {hasHalfFull && (
+                  <>
+                    <div className="form-group">
+                      <label>Half Price</label>
+                      <input type="number" step="0.01" min="0" value={formData.halfPrice} onChange={e => setFormData(d => ({ ...d, halfPrice: e.target.value }))} placeholder="Same as Price" />
+                    </div>
+                    <div className="form-group">
+                      <label>Full Price</label>
+                      <input type="number" step="0.01" min="0" value={formData.fullPrice} onChange={e => setFormData(d => ({ ...d, fullPrice: e.target.value }))} placeholder="Same as Price" />
+                    </div>
+                  </>
+                )}
                 <div className="form-group">
                   <label>Prep Time (min)</label>
                   <input type="number" min="0" value={formData.prepTime} onChange={e => setFormData(d => ({ ...d, prepTime: e.target.value }))} />
