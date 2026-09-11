@@ -218,7 +218,9 @@
 .theme-dark .cart-summary-row.cart-summary-total,
 .theme-dark .cart-summary-row.is-total { color: var(--hp-cream); border-bottom: none; }
 .theme-dark .cart-summary-note { color: var(--hp-faint); }
-.theme-dark .cart-summary .btn-primary { background: var(--hp-cream); color: #0d0c0a; border-color: var(--hp-cream); }
+/* NOTE: no .cart-summary .btn-primary override here — the light system
+   (.theme-dark .btn-primary in pages-light.css) owns the orange button. The old
+   cream-button rule inverted to black-on-black once --hp-cream became ink. */
 .theme-dark .cart-summary .btn-ghost { color: var(--hp-cream); }
 
 /* --------------------------------------------------------------------------
@@ -270,7 +272,7 @@
 .theme-dark .total-loading { color: var(--hp-faint); }
 .theme-dark .form-error { color: #ff8a7a; }
 .theme-dark .summary-secure { color: var(--hp-faint); }
-.theme-dark .checkout-summary .btn-primary { background: var(--hp-cream); color: #0d0c0a; border-color: var(--hp-cream); }
+/* NOTE: no .checkout-summary .btn-primary override here — see note above. */
 
 /* --------------------------------------------------------------------------
    SHARED PIECES (ItemModal on Menu, Toast, VegMark, section eyebrow)

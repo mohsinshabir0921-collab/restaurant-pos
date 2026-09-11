@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import CartContent from "./CartContent";
@@ -5,6 +6,16 @@ import CartContent from "./CartContent";
 export default function CartDrawer({ isOpen }) {
   const { setIsCartOpen, itemCount } = useCart();
   const navigate = useNavigate();
+
+  // Lock background scroll while the drawer is open; restore on close/unmount.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
 
   const handleClose = () => setIsCartOpen(false);
 
